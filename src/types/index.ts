@@ -245,3 +245,24 @@ export interface OwnerProfitMetrics {
   projectedMonthly: number;
   projectedAnnual: number;
 }
+
+export type AppMode = 'demo' | 'live';
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  avatar: string;
+  neighborhood: string;
+  bio: string;
+  joinedYear: string;
+  rating: number;
+  reviewsCount: number;
+  phoneVerified: boolean;
+  idVerified: boolean;
+  memberStatus: 'Community Member' | 'Verified Lender' | 'Neighborhood Steward';
+  role: 'user' | 'admin';
+  address?: string;
+}
+

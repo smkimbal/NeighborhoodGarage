@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
+import { db } from './server/db.js';
 
 dotenv.config();
 
@@ -241,6 +242,124 @@ Respond ONLY with valid JSON in this exact structure:
         assessment: generateHeuristicAssessment(toolName, brand, modelNumber, serialNumber, checkType),
       });
     }
+  });
+
+  // --- DATABASE & APP MODE ENDPOINTS ---
+  // Mode toggle: Demo vs Live
+  app.get('/api/app-mode', (_req, res) => {
+    res.json({ status: 'success', mode: db.getMode() });
+  });
+
+  app.post('/api/app-mode', (req, res) => {
+    const { mode } = req.body;
+    if (mode === 'demo' || mode === 'live') {
+      const updated = db.setMode(mode);
+      return res.json({ status: 'success', mode: updated });
+    }
+    res.status(400).json({ error: 'Mode must be demo or live' });
+  });
+
+  // User Profile
+  app.get('/api/user/profile', (_req, res) => {
+    res.json({ status: 'success', profile: db.getUserProfile() });
+  });
+
+  app.put('/api/user/profile', (req, res) => {
+    const updates = req.body;
+    const profile = db.updateUserProfile(updates);
+    res.json({ status: 'success', profile });
+  });
+
+  // Tools: Live vs Demo
+  app.get('/api/tools', (req, res) => {
+    const mode = (req.query.mode as string) || db.getMode();
+    const data = db.get();
+    if (mode === 'live') {
+      res.json({ status: 'success', tools: data.liveTools || [] });
+    } else {
+      res.json({ status: 'success', tools: data.demoOverrides?.tools || null });
+    }
+  });
+
+  app.post('/api/tools', (req, res) => {
+    const newTool = req.body;
+    const mode = req.body.mode || db.getMode();
+    if (!newTool.id) {
+      newTool.id = `tool_live_${Date.now()}`;
+    }
+    db.update((d) => {
+      if (mode === 'live') {
+        d.liveTools = [newTool, ...(d.liveTools || [])];
+      } else {
+        d.demoOverrides = d.demoOverrides || {};
+        d.demoOverrides.tools = [newTool, ...(d.demoOverrides.tools || [])];
+      }
+    });
+    res.json({ status: 'success', tool: newTool });
+  });
+
+  // Bookings / Rentals
+  app.get('/api/bookings', (req, res) => {
+    const mode = (req.query.mode as string) || db.getMode();
+    const data = db.get();
+    if (mode === 'live') {
+      res.json({ status: 'success', bookings: data.liveBookings || [] });
+    } else {
+      res.json({ status: 'success', bookings: data.demoOverrides?.bookings || null });
+    }
+  });
+
+  app.post('/api/bookings', (req, res) => {
+    const newBooking = req.body;
+    const mode = req.body.mode || db.getMode();
+    if (!newBooking.id) {
+      newBooking.id = `booking_${Date.now()}`;
+    }
+    db.update((d) => {
+      if (mode === 'live') {
+        d.liveBookings = [newBooking, ...(d.liveBookings || [])];
+      } else {
+        d.demoOverrides = d.demoOverrides || {};
+        d.demoOverrides.bookings = [newBooking, ...(d.demoOverrides.bookings || [])];
+      }
+    });
+    res.json({ status: 'success', booking: newBooking });
+  });
+
+  // Wallet
+  app.get('/api/wallet', (req, res) => {
+    const mode = (req.query.mode as string) || db.getMode();
+    const data = db.get();
+    if (mode === 'live') {
+      res.json({ status: 'success', wallet: data.liveWallet });
+    } else {
+      res.json({ status: 'success', wallet: data.demoOverrides?.wallet || null });
+    }
+  });
+
+  app.post('/api/wallet/topup', (req, res) => {
+    const { amount = 25 } = req.body;
+    const mode = req.body.mode || db.getMode();
+    db.update((d) => {
+      const target = mode === 'live' ? d.liveWallet : (d.demoOverrides = d.demoOverrides || {}, d.demoOverrides.wallet = d.demoOverrides.wallet || { availableCredits: 145, heldInEscrow: 35, lifetimeEarned: 180, lifetimeSaved: 94, transactions: [] });
+      target.availableCredits += amount;
+      target.transactions.unshift({
+        id: `tx_${Date.now()}`,
+        date: 'Just now',
+        title: `Added $${amount.toFixed(2)} Credits`,
+        description: 'Instant reload via secure payment method',
+        amount: amount,
+        type: 'credit_topup',
+        status: 'completed',
+      });
+    });
+    res.json({ status: 'success' });
+  });
+
+  // Reset Demo
+  app.post('/api/reset-demo', (_req, res) => {
+    db.resetDemo();
+    res.json({ status: 'success', message: 'Demo data reset to original pristine catalog' });
   });
 
   // Health check

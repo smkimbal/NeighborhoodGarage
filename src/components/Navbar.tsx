@@ -13,10 +13,14 @@ import {
   Map as MapIcon,
   Wallet,
   Award,
-  ScanLine
+  ScanLine,
+  ToggleLeft,
+  ToggleRight,
+  User,
+  HardDrive
 } from 'lucide-react';
-import { CURRENT_USER, CURRENT_USER_RENTER_RANK, NEIGHBORHOODS } from '../data/mockData';
-import { UserWallet } from '../types';
+import { CURRENT_USER_RENTER_RANK, NEIGHBORHOODS } from '../data/mockData';
+import { UserWallet, AppMode, UserProfile } from '../types';
 
 interface NavbarProps {
   activeTab: 'explore' | 'map' | 'rentals' | 'messages' | 'wallet';
@@ -28,6 +32,10 @@ interface NavbarProps {
   onOpenBarcodeScanner: () => void;
   unreadCount: number;
   activeRentalsCount: number;
+  appMode: AppMode;
+  onToggleMode: (mode: AppMode) => void;
+  userProfile: UserProfile;
+  onOpenProfileModal: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -40,92 +48,115 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenBarcodeScanner,
   unreadCount,
   activeRentalsCount,
+  appMode,
+  onToggleMode,
+  userProfile,
+  onOpenProfileModal,
 }) => {
   const [showLocationDropdown, setShowLocationDropdown] = useState(false);
   const [showRankModal, setShowRankModal] = useState(false);
 
   return (
     <header className="sticky top-0 z-40 bg-slate-900 border-b border-slate-800 text-white shadow-xl">
-      {/* Top Friendly Garage Trust Banner */}
-      <div className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-700 text-xs font-medium py-1 px-4 text-center text-amber-50 flex items-center justify-center gap-2">
-        <ShieldCheck className="w-3.5 h-3.5" />
-        <span>
-          <strong>Neighborhood Garage:</strong> Up to $1,500 damage &amp; repair protection included on 100% of rentals • Fast escrow refunds with 6% community bonus
-        </span>
+      {/* Top Garage Trust & Mode Announcement Strip */}
+      <div className={`text-[11px] font-semibold py-1 px-3 text-center flex items-center justify-center gap-2 transition-colors ${
+        appMode === 'live'
+          ? 'bg-gradient-to-r from-emerald-800 via-teal-800 to-emerald-900 text-emerald-100'
+          : 'bg-gradient-to-r from-amber-700 via-orange-700 to-amber-800 text-amber-100'
+      }`}>
+        <div className="flex items-center gap-1.5 truncate max-w-full">
+          {appMode === 'live' ? (
+            <HardDrive className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+          ) : (
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+          )}
+          <span className="truncate">
+            {appMode === 'live' ? (
+              <strong>Live Mode Active:</strong>
+            ) : (
+              <strong>Demo Simulator:</strong>
+            )}{' '}
+            {appMode === 'live'
+              ? 'Real local database & equipment sync enabled • $1.5k shield on all rentals'
+              : 'Simulated neighborhood tool fleet • Toggle to Live Mode anytime for real local equipment'}
+          </span>
+        </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16 gap-3">
-          {/* Charming Logo & Brand */}
-          <div className="flex items-center gap-3 cursor-pointer" onClick={() => setActiveTab('explore')}>
-            <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-400 flex items-center justify-center shadow-md shadow-amber-500/20 text-slate-950">
-              <Home className="w-5 h-5 font-black stroke-[2.5]" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-black text-xl tracking-tight text-white">
-                  Neighborhood<span className="text-amber-400 font-bold ml-1">Garage</span>
-                </span>
-                <span className="text-[10px] font-bold tracking-wider uppercase px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                  Local
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-200/80 -mt-0.5 hidden sm:block font-medium">Charming Neighbor Tool Sharing</p>
-            </div>
-          </div>
-
-          {/* Neighborhood Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setShowLocationDropdown(!showLocationDropdown)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-xs text-slate-200 transition"
-              title="Select neighborhood to filter tools near you"
+      {/* Main Header Row */}
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-14 sm:h-16 gap-2">
+          
+          {/* Left Brand & Neighborhood Cluster */}
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            {/* Logo */}
+            <div 
+              className="flex items-center gap-2 cursor-pointer shrink-0" 
+              onClick={() => setActiveTab('explore')}
             >
-              <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <div className="text-left">
-                <span className="font-medium text-slate-400 block text-[10px] leading-tight">My Garage Zone</span>
-                <span className="font-bold text-white truncate max-w-[120px] sm:max-w-[160px] block leading-tight">
-                  {selectedNeighborhood}
-                </span>
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-gradient-to-tr from-amber-500 via-orange-500 to-amber-400 flex items-center justify-center shadow-md shadow-amber-500/20 text-slate-950 shrink-0">
+                <Home className="w-4 h-4 sm:w-5 sm:h-5 font-black stroke-[2.5]" />
               </div>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1">
+                  <span className="font-black text-sm sm:text-lg tracking-tight text-white truncate">
+                    Neighborhood<span className="text-amber-400 ml-0.5">Garage</span>
+                  </span>
+                </div>
+                <p className="text-[10px] text-amber-200/80 -mt-0.5 hidden md:block font-medium">Charming Neighbor Tool Sharing</p>
+              </div>
+            </div>
 
-            {showLocationDropdown && (
-              <div className="absolute left-0 mt-2 w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in">
-                <div className="px-2 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-700">
-                  Neighborhood Zones
+            {/* Neighborhood Zone Chip */}
+            <div className="relative shrink-0 hidden xs:block">
+              <button
+                onClick={() => setShowLocationDropdown(!showLocationDropdown)}
+                className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 text-[11px] text-slate-200 transition max-w-[110px] sm:max-w-[150px]"
+                title="Select your neighborhood zone"
+              >
+                <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                <span className="font-bold text-white truncate text-left">
+                  {selectedNeighborhood === 'All Neighborhoods' ? 'All Areas' : selectedNeighborhood}
+                </span>
+                <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
+              </button>
+
+              {showLocationDropdown && (
+                <div className="absolute left-0 mt-2 w-56 sm:w-64 bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in">
+                  <div className="px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400 border-b border-slate-700">
+                    Neighborhood Zones
+                  </div>
+                  <div className="mt-1 space-y-1 max-h-56 overflow-y-auto">
+                    {NEIGHBORHOODS.map((nh) => (
+                      <button
+                        key={nh.name}
+                        onClick={() => {
+                          setSelectedNeighborhood(nh.name);
+                          setShowLocationDropdown(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition ${
+                          selectedNeighborhood === nh.name
+                            ? 'bg-amber-500/20 text-amber-300 font-bold'
+                            : 'text-slate-300 hover:bg-slate-700/60'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 truncate">
+                          <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span className="truncate">{nh.name}</span>
+                        </span>
+                        {nh.distance > 0 && (
+                          <span className="text-[10px] text-slate-400 font-normal shrink-0">{nh.distance} mi</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mt-1 space-y-1 max-h-60 overflow-y-auto">
-                  {NEIGHBORHOODS.map((nh) => (
-                    <button
-                      key={nh.name}
-                      onClick={() => {
-                        setSelectedNeighborhood(nh.name);
-                        setShowLocationDropdown(false);
-                      }}
-                      className={`w-full text-left px-2.5 py-2 rounded-xl text-xs flex items-center justify-between transition ${
-                        selectedNeighborhood === nh.name
-                          ? 'bg-amber-500/20 text-amber-300 font-bold'
-                          : 'text-slate-300 hover:bg-slate-700/60'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2">
-                        <MapPin className="w-3 h-3 text-slate-400" />
-                        {nh.name}
-                      </span>
-                      {nh.distance > 0 && (
-                        <span className="text-[11px] text-slate-400 font-normal">{nh.distance} mi</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
 
           {/* Desktop Navigation Tabs */}
-          <nav className="hidden lg:flex items-center gap-1 bg-slate-800/50 p-1 rounded-2xl border border-slate-700/50">
+          <nav className="hidden xl:flex items-center gap-1 bg-slate-800/50 p-1 rounded-2xl border border-slate-700/50 shrink-0">
             <button
               onClick={() => setActiveTab('explore')}
               className={`px-3 py-1.5 rounded-xl text-xs font-medium transition flex items-center gap-1.5 ${
@@ -159,7 +190,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Clock className="w-3.5 h-3.5" />
-              <span>My Rentals</span>
+              <span>Rentals</span>
               {activeRentalsCount > 0 && (
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
               )}
@@ -191,80 +222,87 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <Wallet className="w-3.5 h-3.5" />
-              <span>Credits &amp; Escrow</span>
+              <span>Credits</span>
             </button>
           </nav>
 
-          {/* Right Action Bar: Scan Barcode, Neighbor Rank & Lending */}
-          <div className="flex items-center gap-2">
-            {/* Quick Barcode Scanner Button */}
+          {/* Right Action Bar: Mode Toggle + Lend Button + Wallet + Profile Avatar (ALWAYS VISIBLE!) */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
+            
+            {/* DEMO / LIVE MODE TOGGLE BADGE */}
+            <button
+              onClick={() => onToggleMode(appMode === 'demo' ? 'live' : 'demo')}
+              className={`flex items-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-xl text-[11px] font-black border transition active:scale-95 shrink-0 ${
+                appMode === 'live'
+                  ? 'bg-emerald-950/80 hover:bg-emerald-900 border-emerald-500/50 text-emerald-300 shadow-sm shadow-emerald-500/10'
+                  : 'bg-amber-950/80 hover:bg-amber-900 border-amber-500/50 text-amber-300 shadow-sm shadow-amber-500/10'
+              }`}
+              title={`Currently in ${appMode.toUpperCase()} mode. Click to toggle.`}
+            >
+              {appMode === 'live' ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span>Live</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3 h-3 text-amber-400" />
+                  <span>Demo</span>
+                </>
+              )}
+            </button>
+
+            {/* Quick Barcode Scanner (Desktop only to conserve mobile width) */}
             <button
               onClick={onOpenBarcodeScanner}
-              className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-400 border border-slate-700 transition"
+              className="hidden lg:flex p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-amber-400 border border-slate-700 transition shrink-0"
               title="Barcode Scanner: Scan Tool In or Out"
             >
               <ScanLine className="w-4 h-4" />
             </button>
 
-            {/* Renter Rank Badge */}
-            <button
-              onClick={() => setShowRankModal(!showRankModal)}
-              className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-950/60 to-slate-800 border border-amber-500/40 text-amber-300 text-xs font-bold transition hover:border-amber-400"
-              title="Click to view your Neighbor Rank &amp; Renter Perks"
-            >
-              <Award className="w-3.5 h-3.5 text-amber-400" />
-              <span className="text-[11px]">{CURRENT_USER_RENTER_RANK.tier}</span>
-            </button>
-
-            {/* Wallet Escrow & Credits Pill */}
+            {/* Wallet Balance Pill */}
             <button
               onClick={() => setActiveTab('wallet')}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-950 border border-emerald-700/50 text-xs transition"
-              title="Neighborhood Garage Internal Credits - Available Balance"
+              className="flex items-center gap-1.5 px-2 sm:px-2.5 py-1.5 rounded-xl bg-emerald-950/60 hover:bg-emerald-950 border border-emerald-700/50 text-xs transition shrink-0"
+              title="Available Wallet Credits"
             >
-              <div className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold">
-                <Coins className="w-3.5 h-3.5" />
-              </div>
-              <div className="text-left hidden sm:block">
-                <span className="text-[10px] text-emerald-300/80 block leading-tight font-medium">Credits</span>
-                <span className="font-black text-emerald-300 block leading-tight">
-                  ${wallet.availableCredits.toFixed(2)}
-                </span>
-              </div>
-              {wallet.heldInEscrow > 0 && (
-                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded font-mono hidden md:inline-block" title="Held in rental damage deposit escrow">
-                  ${wallet.heldInEscrow.toFixed(0)} escrow
-                </span>
-              )}
+              <Coins className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span className="font-black text-emerald-300 text-xs leading-none">
+                ${wallet.availableCredits.toFixed(0)}
+              </span>
             </button>
 
-            {/* List Your Tool Button */}
+            {/* List Your Tool Button (ALWAYS VISIBLE!) */}
             <button
               onClick={onOpenListModal}
-              className="flex items-center gap-1.5 px-3 sm:px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95"
+              className="flex items-center gap-1 sm:gap-1.5 px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shadow-md shadow-amber-500/20 transition active:scale-95 shrink-0"
+              title="List a tool to lend out in your neighborhood"
             >
-              <PlusCircle className="w-4 h-4 stroke-[2.5]" />
-              <span className="hidden sm:inline">Lend a Tool</span>
-              <span className="sm:hidden">Lend</span>
+              <PlusCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+              <span>Lend</span>
             </button>
 
-            {/* User Profile Avatar */}
-            <div 
-              onClick={() => setActiveTab('rentals')}
-              className="w-9 h-9 rounded-full overflow-hidden border-2 border-slate-700 hover:border-amber-400 cursor-pointer transition shrink-0 relative"
-              title={`Logged in as ${CURRENT_USER.name} (${CURRENT_USER.rating}★)`}
+            {/* User Profile Avatar Button (ALWAYS VISIBLE! Opens Profile Modal) */}
+            <button
+              onClick={onOpenProfileModal}
+              className="w-8 h-8 sm:w-9 sm:h-9 rounded-full overflow-hidden border-2 border-amber-400/80 hover:border-amber-300 ring-2 ring-transparent hover:ring-amber-400/30 transition shrink-0 relative cursor-pointer"
+              title={`Profile & Settings: ${userProfile.name} (${appMode.toUpperCase()} mode)`}
             >
               <img 
-                src={CURRENT_USER.avatar} 
-                alt={CURRENT_USER.name} 
+                src={userProfile.avatar} 
+                alt={userProfile.name} 
                 className="w-full h-full object-cover" 
               />
-            </div>
+              <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-slate-900 ${
+                appMode === 'live' ? 'bg-emerald-400' : 'bg-amber-400'
+              }`} />
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Neighbor Rank & Perks Modal */}
+      {/* Neighbor Rank Modal */}
       {showRankModal && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-slate-900 border border-amber-500/40 rounded-3xl p-6 space-y-4 shadow-2xl animate-in fade-in">
@@ -310,10 +348,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             </div>
 
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              Every on-time return and well-maintained tool increases your neighbor ranking, unlocking lower escrow requirements and higher re-rental bonuses!
-            </p>
-
             <button
               onClick={() => setShowRankModal(false)}
               className="w-full py-2.5 rounded-xl bg-amber-500 text-slate-950 font-bold text-xs"
@@ -325,7 +359,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       )}
 
       {/* Mobile Bottom Navigation Bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-50 px-2 py-1 flex items-center justify-around shadow-2xl">
+      <div className="xl:hidden fixed bottom-0 left-0 right-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 z-50 px-2 py-1 flex items-center justify-around shadow-2xl">
         <button
           onClick={() => setActiveTab('explore')}
           className={`flex flex-col items-center py-1.5 px-2 text-[10px] font-medium transition ${
@@ -347,11 +381,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
-          onClick={onOpenBarcodeScanner}
-          className="flex flex-col items-center py-1.5 px-2 text-[10px] font-medium text-slate-400 hover:text-amber-400"
+          onClick={onOpenListModal}
+          className="flex flex-col items-center py-1 px-2.5 rounded-xl bg-amber-500/20 text-amber-300 font-bold text-[10px] border border-amber-500/30 shadow-sm"
         >
-          <ScanLine className="w-4 h-4 mb-0.5" />
-          <span>Scan In/Out</span>
+          <PlusCircle className="w-4 h-4 mb-0.5 text-amber-400 stroke-[2.5]" />
+          <span>+ Lend</span>
         </button>
 
         <button
@@ -368,13 +402,11 @@ export const Navbar: React.FC<NavbarProps> = ({
         </button>
 
         <button
-          onClick={() => setActiveTab('wallet')}
-          className={`flex flex-col items-center py-1.5 px-2 text-[10px] font-medium transition ${
-            activeTab === 'wallet' ? 'text-amber-400 font-bold' : 'text-slate-400 hover:text-slate-200'
-          }`}
+          onClick={onOpenProfileModal}
+          className="flex flex-col items-center py-1.5 px-2 text-[10px] font-medium text-slate-400 hover:text-amber-400 transition"
         >
-          <Wallet className="w-4 h-4 mb-0.5" />
-          <span>Credits</span>
+          <User className="w-4 h-4 mb-0.5" />
+          <span>Profile</span>
         </button>
       </div>
     </header>
