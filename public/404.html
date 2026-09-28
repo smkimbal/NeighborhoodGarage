@@ -1,16 +1,25 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Neighborhood Garage - Charming Local Tool Sharing &amp; Rentals</title>
-    <script>
-      // Single Page App redirect for GitHub Pages
-      sessionStorage.redirect = location.href;
+    <meta charset="utf-8">
+    <title>Neighborhood Garage - Redirecting...</title>
+    <script type="text/javascript">
+      // Single Page Apps for GitHub Pages
+      // https://github.com/rafgraph/spa-github-pages
+      var pathSegmentsToKeep = 1;
+      var l = window.location;
+      l.replace(
+        l.protocol + '//' + l.hostname + (l.port ? ':' + l.port : '') +
+        l.pathname.split('/').slice(0, 1 + pathSegmentsToKeep).join('/') + '/?/' +
+        l.pathname.slice(1).split('/').slice(pathSegmentsToKeep).join('/').replace(/&/g, '~and~') +
+        (l.search ? '&' + l.search.slice(1).replace(/&/g, '~and~') : '') +
+        l.hash
+      );
     </script>
-    <meta http-equiv="refresh" content="0;URL='./'" />
   </head>
   <body>
-    <p>Redirecting to Neighborhood Garage...</p>
+    <p style="font-family: sans-serif; text-align: center; margin-top: 50px;">
+      Loading Neighborhood Garage...
+    </p>
   </body>
 </html>
