@@ -2,7 +2,7 @@
 
 Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.
 
-See [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe still needs its server secret; external AI photo processing awaits explicit project-owner approval.
+See [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe sandbox credentials and Connect were configured during the September 29 verification. The combined Stripe Sync webhook is deployed; a complete rental-to-payout sandbox journey remains to be validated. Tool identification runs locally in the browser; external AI photo processing remains disabled. See [hosting readiness](docs/HOSTING.md).
 
 ## Live architecture
 
@@ -29,7 +29,7 @@ The browser uses only the project URL, publishable key, and canonical public Aut
 The deployed payment functions fail closed until real Stripe credentials are configured in Supabase Edge Function secrets:
 
 - `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_WEBHOOK_SECRET` only for standalone webhook verification; the installed Stripe Sync integration uses its managed signing secret.
 
 Configure a Stripe webhook endpoint for:
 
@@ -73,7 +73,7 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 
 ## Production checklist
 
-1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; use a separate production database/project and live keys before accepting real customer payments. Set `STRIPE_MODE=live` only in that production environment; sandbox account and payment IDs cannot be reused.
+1. Preserve the configured sandbox credentials and combined Stripe Sync webhook. The currently connected Stripe account is a **sandbox**; use a separate production database/project and live keys before accepting real customer payments. Set `STRIPE_MODE=live` only in that production environment; sandbox account and payment IDs cannot be reused.
 2. Set Supabase Auth **Site URL** to `https://smkimbal.github.io/NeighborhoodGarage/` and add that same URL to **Redirect URLs**. Local preview URLs (`http://localhost:5173` and/or `http://localhost:3000`) may remain allowlisted for development, but signup confirmation and password recovery intentionally use the canonical public callback.
 3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
 4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
@@ -82,4 +82,4 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 
 ## Schema
 
-The checked-in migrations under `supabase/migrations/` mirrors the live project schema and policies used by this branch.
+The checked-in migrations under `supabase/migrations/` mirror the live project schema and policies used by this branch.
