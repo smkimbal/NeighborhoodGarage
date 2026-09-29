@@ -45,7 +45,7 @@ async function refresh(){
       if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
       renderPasswordRecovery();return;
     }
-    if(!verifiedFactors.length){renderRequiredMfaEnrollment();return;}
+    if(!verifiedFactors.length){renderRequiredMfaEnrollment(factors.data?.totp||[]);return;}
     if(aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
     const [p,t,r,m,v,c]=await Promise.all([
       supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',user.id).single(),
@@ -229,7 +229,15 @@ async function beginMfaEnrollment({required=false}={}){
   }catch(err){toast(errorText(err))}
 }
 
-function renderRequiredMfaEnrollment(){
+function renderRequiredMfaEnrollment(totpFactors=[]){
+  const pending=totpFactors.find(x=>x.status==='unverified');
+  if(pending){
+    app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Finish securing your account</div><h1>Continue two-factor setup.</h1><p class="muted">An authenticator was already started for this account. If you scanned the QR code before switching apps, enter the current 6-digit code below.</p><form id="resume-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Verify and continue</button></form><button id="restart-mfa" class="linkish">I need a new QR code</button><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
+    $('#resume-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const challenge=await supabase.auth.mfa.challenge({factorId:pending.id});if(challenge.error)throw challenge.error;const verify=await supabase.auth.mfa.verify({factorId:pending.id,challengeId:challenge.data.id,code:String(new FormData(e.target).get('code')||'').trim()});if(verify.error)throw verify.error;toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+    $('#restart-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{const {error}=await supabase.auth.mfa.unenroll({factorId:pending.id});if(error)throw error;await beginMfaEnrollment({required:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+    $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
+    return;
+  }
   app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Secure your account</div><h1>Add two-factor authentication.</h1><p class="muted">Neighborhood Garage requires an authenticator app before profile setup, listings, messages, or rentals can be accessed.</p><div id="required-mfa-box"><button class="primary" id="start-required-mfa">Set up authenticator</button></div><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
   $('#start-required-mfa').onclick=()=>beginMfaEnrollment({required:true});
   $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
