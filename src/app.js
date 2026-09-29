@@ -17,6 +17,10 @@ function errorText(e){return e?.message||String(e||'Something went wrong.')}
 function initials(name='Neighbor'){return name.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()}
 function tracking(tool){return tool?.tracking_code||('NG'+String(tool?.id||'').replaceAll('-','').slice(0,8).toUpperCase())}
 function authRedirectUrl(){return window.NG_CONFIG?.authRedirectUrl||location.href.split('#')[0]}
+function pendingMfaKey(){return user?.id?`ng-pending-totp:${user.id}`:''}
+function getPendingMfaId(){try{return pendingMfaKey()?localStorage.getItem(pendingMfaKey()):null}catch{return null}}
+function setPendingMfaId(id){try{if(pendingMfaKey())localStorage.setItem(pendingMfaKey(),id)}catch{}}
+function clearPendingMfaId(){try{if(pendingMfaKey())localStorage.removeItem(pendingMfaKey())}catch{}}
 
 async function bootstrap(){
   const {data}=await supabase.auth.getSession();
@@ -215,26 +219,55 @@ async function openStripeDashboard(){
   try{const {data,error}=await supabase.functions.invoke('connect-account',{body:{action:'dashboard'}});if(error)throw error;if(data?.url)location.assign(data.url);else throw new Error(data?.error||'Stripe dashboard link unavailable.')}catch(err){toast(errorText(err))}
 }
 
-async function beginMfaEnrollment({required=false}={}){
+async function cleanupPendingMfa(){
+  const {data,error}=await supabase.functions.invoke('mfa-recovery',{body:{}});
+  if(error)throw error;
+  if(data?.error)throw new Error(data.error);
+  clearPendingMfaId();
+  return data?.removed||[];
+}
+
+async function verifyPendingMfa(factorId,code){
+  const challenge=await supabase.auth.mfa.challenge({factorId});
+  if(challenge.error)throw challenge.error;
+  const verify=await supabase.auth.mfa.verify({factorId,challengeId:challenge.data.id,code:String(code||'').trim()});
+  if(verify.error)throw verify.error;
+  clearPendingMfaId();
+  return verify.data;
+}
+
+async function beginMfaEnrollment({required=false,retried=false}={}){
   try{
     const enroll=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:required?'Neighborhood Garage':'Backup authenticator'});
     if(enroll.error)throw enroll.error;
-    const body=`<p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary">Enable 2FA</button></form>`;
+    setPendingMfaId(enroll.data.id);
+    const body=`<p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><p class="fine">You can switch to your authenticator app and return here. This setup will resume instead of creating another factor.</p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Enable 2FA</button></form><button id="restart-current-mfa" class="linkish">Generate a different QR code</button>`;
     if(required){
       const box=$('#required-mfa-box');if(!box)return;box.innerHTML=body;
     }else{
       showModal(`<div class="dialog-head"><h2>Add authenticator</h2><button data-close>✕</button></div>${body}`);
     }
-    $('#enable-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const challenge=await supabase.auth.mfa.challenge({factorId:enroll.data.id});if(challenge.error)throw challenge.error;const verify=await supabase.auth.mfa.verify({factorId:enroll.data.id,challengeId:challenge.data.id,code:new FormData(e.target).get('code')});if(verify.error)throw verify.error;closeModal();toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-  }catch(err){toast(errorText(err))}
+    $('#enable-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await verifyPendingMfa(enroll.data.id,new FormData(e.target).get('code'));closeModal();toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+    $('#restart-current-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();await beginMfaEnrollment({required,retried:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+  }catch(err){
+    const duplicate=/friendly name|already exists|factor.*exists/i.test(errorText(err));
+    if(required&&!retried&&duplicate){
+      try{
+        await cleanupPendingMfa();
+        await beginMfaEnrollment({required:true,retried:true});
+        return;
+      }catch(cleanErr){toast(errorText(cleanErr));return}
+    }
+    toast(errorText(err));
+  }
 }
 
-function renderRequiredMfaEnrollment(totpFactors=[]){
-  const pending=totpFactors.find(x=>x.status==='unverified');
-  if(pending){
-    app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Finish securing your account</div><h1>Continue two-factor setup.</h1><p class="muted">An authenticator was already started for this account. If you scanned the QR code before switching apps, enter the current 6-digit code below.</p><form id="resume-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Verify and continue</button></form><button id="restart-mfa" class="linkish">I need a new QR code</button><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
-    $('#resume-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const challenge=await supabase.auth.mfa.challenge({factorId:pending.id});if(challenge.error)throw challenge.error;const verify=await supabase.auth.mfa.verify({factorId:pending.id,challengeId:challenge.data.id,code:String(new FormData(e.target).get('code')||'').trim()});if(verify.error)throw verify.error;toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-    $('#restart-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{const {error}=await supabase.auth.mfa.unenroll({factorId:pending.id});if(error)throw error;await beginMfaEnrollment({required:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+function renderRequiredMfaEnrollment(){
+  const pendingId=getPendingMfaId();
+  if(pendingId){
+    app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Finish securing your account</div><h1>Continue two-factor setup.</h1><p class="muted">Enter the current 6-digit code from the authenticator you just added. Switching apps or reloading this page will not create another factor.</p><form id="resume-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Verify and continue</button></form><button id="restart-mfa" class="linkish">I need a new QR code</button><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
+    $('#resume-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await verifyPendingMfa(pendingId,new FormData(e.target).get('code'));toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+    $('#restart-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();renderRequiredMfaEnrollment()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
     $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
     return;
   }
