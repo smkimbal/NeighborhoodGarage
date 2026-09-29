@@ -28,18 +28,33 @@ Deno.serve(async(req)=>{
     const {data:{user},error:userError}=await userClient.auth.getUser();
     if(userError||!user)throw new Error("Invalid session.");
 
+    const body=await req.json().catch(()=>({}));
+    const action=body.action||"status";
     const {data,error}=await admin.auth.admin.mfa.listFactors({userId:user.id});
     if(error)throw error;
-    const factors=data?.factors||[];
-    const removed:string[]=[];
-    for(const factor of factors){
-      if(factor.factor_type==="totp" && factor.status==="unverified"){
+    const pending=(data?.factors||[]).filter((factor:any)=>factor.factor_type==="totp"&&factor.status==="unverified");
+
+    if(action==="status"){
+      return new Response(JSON.stringify({
+        pending:pending.map((factor:any)=>({
+          id:factor.id,
+          friendlyName:factor.friendly_name||"Authenticator",
+          createdAt:factor.created_at||null
+        }))
+      }),{headers});
+    }
+
+    if(action==="cleanup"){
+      const removed:string[]=[];
+      for(const factor of pending){
         const del=await admin.auth.admin.mfa.deleteFactor({userId:user.id,id:factor.id});
         if(del.error)throw del.error;
         removed.push(factor.id);
       }
+      return new Response(JSON.stringify({removed}),{headers});
     }
-    return new Response(JSON.stringify({removed}),{headers});
+
+    throw new Error("Unknown MFA recovery action.");
   }catch(e){
     return new Response(JSON.stringify({error:e.message||"MFA recovery failed."}),{status:400,headers});
   }
