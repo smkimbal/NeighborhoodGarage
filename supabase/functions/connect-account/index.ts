@@ -17,7 +17,7 @@ Deno.serve(async req=>{
    const url=Deno.env.get("SUPABASE_URL")!;
    const userClient=createClient(url,envKey("SUPABASE_PUBLISHABLE_KEYS"),{global:{headers:{Authorization:auth}}});
    const admin=createClient(url,envKey("SUPABASE_SECRET_KEYS"),{auth:{persistSession:false}});
-   const {data:{user},error:userErr}=await userClient.auth.getUser(); if(userErr||!user) throw new Error("Invalid session.");requireAal2(auth);
+   const {data:{user},error:userErr}=await userClient.auth.getUser(); if(userErr||!user) throw new Error("Invalid session.");
    const {data:profile,error:profileErr}=await admin.from("profiles").select("*").eq("id",user.id).single(); if(profileErr||!profile) throw new Error("Profile not found.");
    const body=await req.json().catch(()=>({})); const action=body.action||"onboard";
    let accountId=profile.stripe_account_id;
