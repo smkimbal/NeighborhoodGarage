@@ -20,7 +20,7 @@ There is no Demo Mode, fake checkout, seeded marketplace inventory, localStorage
 
 Project ref: `ilfpugydxlzmmxjfrmrv`
 
-The browser uses only the project URL and publishable key in `config.js`. Those values are intentionally public. Never place Supabase secret keys, Stripe secret keys, or webhook secrets in `config.js` or any GitHub Pages asset.
+The browser uses only the project URL, publishable key, and canonical public Auth callback in `config.js`. Those values are intentionally public. Never place Supabase secret keys, Stripe secret keys, or webhook secrets in `config.js` or any GitHub Pages asset.
 
 ## Required Stripe configuration
 
@@ -69,7 +69,7 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 ## Production checklist
 
 1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; switch and validate the integration in Stripe live mode before accepting real customer payments.
-2. Configure Auth redirect URLs for the GitHub Pages production URL plus the local preview URLs you use (`http://localhost:5173` and/or `http://localhost:3000`).
+2. Set Supabase Auth **Site URL** to `https://smkimbal.github.io/NeighborhoodGarage/` and add that same URL to **Redirect URLs**. Local preview URLs (`http://localhost:5173` and/or `http://localhost:3000`) may remain allowlisted for development, but signup confirmation and password recovery intentionally use the canonical public callback.
 3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
 4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
 5. Add legal terms, privacy policy, cancellation/refund rules, support/dispute administration, and any real insurance terms before representing coverage to users.

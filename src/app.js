@@ -16,6 +16,7 @@ function setBusy(btn,on=true){if(btn){btn.disabled=on;btn.dataset.oldText??=btn.
 function errorText(e){return e?.message||String(e||'Something went wrong.')}
 function initials(name='Neighbor'){return name.split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()}
 function tracking(tool){return tool?.tracking_code||('NG'+String(tool?.id||'').replaceAll('-','').slice(0,8).toUpperCase())}
+function authRedirectUrl(){return window.NG_CONFIG?.authRedirectUrl||location.href.split('#')[0]}
 
 async function bootstrap(){
   const {data}=await supabase.auth.getSession();
@@ -115,8 +116,8 @@ function renderAuth(){
   const tabs=[...document.querySelectorAll('[data-auth-tab]')];
   tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.toggle('active',x===b));$('#signin').classList.toggle('hidden',b.dataset.authTab!=='signin');$('#signup').classList.toggle('hidden',b.dataset.authTab!=='signup')});
   $('#signin').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target);const {error}=await supabase.auth.signInWithPassword({email:f.get('email'),password:f.get('password')});if(error)throw error}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-  $('#signup').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target);const {data,error}=await supabase.auth.signUp({email:f.get('email'),password:f.get('password'),options:{data:{display_name:f.get('displayName')},emailRedirectTo:location.href.split('#')[0]}});if(error)throw error;if(!data.session)toast('Check your email to confirm your account.');}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-  $('#reset-password').onclick=async()=>{const email=prompt('Enter your account email');if(!email)return;const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:location.href.split('#')[0]+'#/profile'});toast(error?error.message:'Password reset email sent.')};
+  $('#signup').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target);const {data,error}=await supabase.auth.signUp({email:f.get('email'),password:f.get('password'),options:{data:{display_name:f.get('displayName')},emailRedirectTo:authRedirectUrl()}});if(error)throw error;if(!data.session)toast('Check your email to confirm your account.');}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+  $('#reset-password').onclick=async()=>{const email=prompt('Enter your account email');if(!email)return;const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:authRedirectUrl()});toast(error?error.message:'Password reset email sent.')};
 }
 
 function renderOnboarding(){
