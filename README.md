@@ -10,7 +10,8 @@ Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app b
 - **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
 - **Realtime:** Supabase Realtime for message inserts.
 - **Payments:** Stripe Checkout created by the `create-checkout` Edge Function; Stripe webhooks finalize paid rentals.
-- **Privileged rental transitions:** `rental-action` Edge Function validates renter/owner identity before pickup, return, approval, dispute, and deposit-credit issuance.
+- **Marketplace payouts:** Stripe Connect onboarding is handled by `connect-account`. Owner proceeds are held on the platform and transferred only after the owner approves the returned tool.
+- **Privileged rental transitions:** `rental-action` validates renter/owner identity before pickup, return, approval, dispute, owner payout, and deposit-credit issuance.
 - **Credits:** append-only `credit_ledger`; approved deposits become Tool Share Credits.
 
 There is no Demo Mode, fake checkout, seeded marketplace inventory, localStorage wallet, or simulated account system.
@@ -66,12 +67,12 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 
 ## Production checklist
 
-1. Connect/configure Stripe and set the two Edge Function secrets above.
+1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; switch and validate the integration in Stripe live mode before accepting real customer payments.
 2. Configure Auth redirect URLs for the GitHub Pages production URL and local development URL.
 3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
 4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
 5. Add legal terms, privacy policy, cancellation/refund rules, support/dispute administration, and any real insurance terms before representing coverage to users.
-6. For a true marketplace payout model, add Stripe Connect onboarding and owner payouts. Current checkout collects payment to the platform account; owner payout accounting is not yet automated.
+6. Complete the Stripe Connect platform profile/liability setup and test connected-account onboarding, payment, return approval, transfer, payout, refund, and dispute scenarios end-to-end in Stripe sandbox before moving to live mode.
 
 ## Schema
 
