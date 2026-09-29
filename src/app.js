@@ -49,8 +49,7 @@ async function refresh(){
       if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
       renderPasswordRecovery();return;
     }
-    if(!verifiedFactors.length){renderRequiredMfaEnrollment(factors.data?.totp||[]);return;}
-    if(aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
+    if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
     const [p,t,r,m,v,c]=await Promise.all([
       supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',user.id).single(),
       supabase.from('tools').select('*, owner:profiles!tools_owner_id_fkey(display_name)').order('created_at',{ascending:false}),
@@ -181,7 +180,7 @@ function renderMessages(root){
 }
 
 function renderProfile(root){
-  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Account & reputation</div><h1>${esc(profile.display_name)}</h1><p>${esc(profile.neighborhood)}, ${esc(profile.city)}, ${esc(profile.state)}</p></div><button id="signout">Sign out</button></section><div class="stats"><div class="stat"><span>Tool Share Credits</span><strong>${money(credits)}</strong></div><div class="stat"><span>Completed rentals</span><strong>${rentals.filter(r=>r.renter_id===user.id&&r.status==='complete').length}</strong></div><div class="stat"><span>Tools listed</span><strong>${tools.filter(t=>t.owner_id===user.id).length}</strong></div></div><div class="two-col"><form id="edit-profile" class="form-card"><h2>Profile</h2><label>Display name<input name="display_name" value="${esc(profile.display_name)}" required></label><label>Neighborhood<input name="neighborhood" value="${esc(profile.neighborhood)}" required></label><div class="form-grid"><label>City<input name="city" value="${esc(profile.city)}" required></label><label>State<input name="state" value="${esc(profile.state)}" required></label></div><label>Bio<textarea name="bio" maxlength="500">${esc(profile.bio||'')}</textarea></label><button class="primary">Save profile</button></form><section class="form-card"><h2>Security</h2><p>Your account uses verified email plus required authenticator-app two-factor authentication.</p><div id="mfa-box"><button id="manage-mfa">Manage two-factor authentication</button><button id="change-password">Change password</button></div><h3>Owner payouts</h3><div id="payout-box">${profile.stripe_onboarding_complete?'<span class="status">Payouts enabled</span><button id="stripe-dashboard">Open Stripe Express</button>':'<p class="muted">Connect Stripe before listing tools or receiving rental proceeds.</p><button class="primary" id="start-payouts">Set up payouts</button>'}</div><h3>Signed in as</h3><p class="muted">${esc(user.email||'')}</p></section></div>`;
+  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Account & reputation</div><h1>${esc(profile.display_name)}</h1><p>${esc(profile.neighborhood)}, ${esc(profile.city)}, ${esc(profile.state)}</p></div><button id="signout">Sign out</button></section><div class="stats"><div class="stat"><span>Tool Share Credits</span><strong>${money(credits)}</strong></div><div class="stat"><span>Completed rentals</span><strong>${rentals.filter(r=>r.renter_id===user.id&&r.status==='complete').length}</strong></div><div class="stat"><span>Tools listed</span><strong>${tools.filter(t=>t.owner_id===user.id).length}</strong></div></div><div class="two-col"><form id="edit-profile" class="form-card"><h2>Profile</h2><label>Display name<input name="display_name" value="${esc(profile.display_name)}" required></label><label>Neighborhood<input name="neighborhood" value="${esc(profile.neighborhood)}" required></label><div class="form-grid"><label>City<input name="city" value="${esc(profile.city)}" required></label><label>State<input name="state" value="${esc(profile.state)}" required></label></div><label>Bio<textarea name="bio" maxlength="500">${esc(profile.bio||'')}</textarea></label><button class="primary">Save profile</button></form><section class="form-card"><h2>Security</h2><p>Your account uses verified email. Authenticator-app two-factor authentication is optional during sandbox testing; once enabled, it is required for that account at sign-in.</p><div id="mfa-box"><button id="manage-mfa">Manage two-factor authentication</button><button id="change-password">Change password</button></div><h3>Owner payouts</h3><div id="payout-box">${profile.stripe_onboarding_complete?'<span class="status">Payouts enabled</span><button id="stripe-dashboard">Open Stripe Express</button>':'<p class="muted">Connect Stripe before listing tools or receiving rental proceeds.</p><button class="primary" id="start-payouts">Set up payouts</button>'}</div><h3>Signed in as</h3><p class="muted">${esc(user.email||'')}</p></section></div>`;
   $('#signout').onclick=()=>supabase.auth.signOut();
   $('#edit-profile').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);const values=Object.fromEntries(new FormData(e.target));const {error}=await supabase.from('profiles').update(values).eq('id',user.id);setBusy(b,false);if(error)toast(error.message);else{toast('Profile updated.');await refresh()}};
   $('#manage-mfa').onclick=manageMfa;if($('#start-payouts'))$('#start-payouts').onclick=startStripeOnboarding;if($('#stripe-dashboard'))$('#stripe-dashboard').onclick=openStripeDashboard;$('#change-password').onclick=async()=>{const password=prompt('Enter a new password (12+ characters)');if(!password)return;if(password.length<12){toast('Use at least 12 characters.');return}const {error}=await supabase.auth.updateUser({password});toast(error?error.message:'Password updated.');};
@@ -219,8 +218,15 @@ async function openStripeDashboard(){
   try{const {data,error}=await supabase.functions.invoke('connect-account',{body:{action:'dashboard'}});if(error)throw error;if(data?.url)location.assign(data.url);else throw new Error(data?.error||'Stripe dashboard link unavailable.')}catch(err){toast(errorText(err))}
 }
 
+async function getServerPendingMfa(){
+  const {data,error}=await supabase.functions.invoke('mfa-recovery',{body:{action:'status'}});
+  if(error)throw error;
+  if(data?.error)throw new Error(data.error);
+  return data?.pending||[];
+}
+
 async function cleanupPendingMfa(){
-  const {data,error}=await supabase.functions.invoke('mfa-recovery',{body:{}});
+  const {data,error}=await supabase.functions.invoke('mfa-recovery',{body:{action:'cleanup'}});
   if(error)throw error;
   if(data?.error)throw new Error(data.error);
   clearPendingMfaId();
@@ -236,44 +242,38 @@ async function verifyPendingMfa(factorId,code){
   return verify.data;
 }
 
-async function beginMfaEnrollment({required=false,retried=false}={}){
+function showPendingMfaVerification(factorId){
+  setPendingMfaId(factorId);
+  showModal(`<div class="dialog-head"><h2>Finish two-factor setup</h2><button data-close>✕</button></div><p>Enter the current 6-digit code from the authenticator entry you already scanned.</p><form id="resume-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required autofocus></label><button class="primary">Verify 2FA code</button></form><button id="restart-mfa" class="linkish">That authenticator entry is unusable — start over</button>`);
+  $('#resume-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await verifyPendingMfa(factorId,new FormData(e.target).get('code'));closeModal();toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+  $('#restart-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();closeModal();await beginMfaEnrollment({skipPendingCheck:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+}
+
+async function beginMfaEnrollment({skipPendingCheck=false,retried=false}={}){
   try{
-    const enroll=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:required?'Neighborhood Garage':'Backup authenticator'});
+    if(!skipPendingCheck){
+      const pending=await getServerPendingMfa();
+      if(pending.length){showPendingMfaVerification(pending[0].id);return}
+    }
+    const enroll=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'Neighborhood Garage'});
     if(enroll.error)throw enroll.error;
     setPendingMfaId(enroll.data.id);
-    const body=`<p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><p class="fine">You can switch to your authenticator app and return here. This setup will resume instead of creating another factor.</p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Enable 2FA</button></form><button id="restart-current-mfa" class="linkish">Generate a different QR code</button>`;
-    if(required){
-      const box=$('#required-mfa-box');if(!box)return;box.innerHTML=body;
-    }else{
-      showModal(`<div class="dialog-head"><h2>Add authenticator</h2><button data-close>✕</button></div>${body}`);
-    }
+    showModal(`<div class="dialog-head"><h2>Add authenticator</h2><button data-close>✕</button></div><p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><p class="fine">After scanning, switch back here and enter the 6-digit code below. If this dialog closes, choose Manage two-factor authentication again and the app will resume this exact factor.</p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Verify 2FA code</button></form><button id="restart-current-mfa" class="linkish">Generate a different QR code</button>`);
     $('#enable-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await verifyPendingMfa(enroll.data.id,new FormData(e.target).get('code'));closeModal();toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-    $('#restart-current-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();await beginMfaEnrollment({required,retried:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+    $('#restart-current-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();closeModal();await beginMfaEnrollment({skipPendingCheck:true,retried:true})}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
   }catch(err){
     const duplicate=/friendly name|already exists|factor.*exists/i.test(errorText(err));
-    if(required&&!retried&&duplicate){
+    if(!retried&&duplicate){
       try{
+        const pending=await getServerPendingMfa();
+        if(pending.length){showPendingMfaVerification(pending[0].id);return}
         await cleanupPendingMfa();
-        await beginMfaEnrollment({required:true,retried:true});
+        await beginMfaEnrollment({skipPendingCheck:true,retried:true});
         return;
       }catch(cleanErr){toast(errorText(cleanErr));return}
     }
     toast(errorText(err));
   }
-}
-
-function renderRequiredMfaEnrollment(){
-  const pendingId=getPendingMfaId();
-  if(pendingId){
-    app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Finish securing your account</div><h1>Continue two-factor setup.</h1><p class="muted">Enter the current 6-digit code from the authenticator you just added. Switching apps or reloading this page will not create another factor.</p><form id="resume-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required></label><button class="primary">Verify and continue</button></form><button id="restart-mfa" class="linkish">I need a new QR code</button><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
-    $('#resume-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await verifyPendingMfa(pendingId,new FormData(e.target).get('code'));toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-    $('#restart-mfa').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{await cleanupPendingMfa();renderRequiredMfaEnrollment()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-    $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
-    return;
-  }
-  app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Secure your account</div><h1>Add two-factor authentication.</h1><p class="muted">Neighborhood Garage requires an authenticator app before profile setup, listings, messages, or rentals can be accessed.</p><div id="required-mfa-box"><button class="primary" id="start-required-mfa">Set up authenticator</button></div><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
-  $('#start-required-mfa').onclick=()=>beginMfaEnrollment({required:true});
-  $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
 }
 
 function renderPasswordRecovery(){
@@ -286,10 +286,14 @@ async function manageMfa(){
   try{
     const factors=await supabase.auth.mfa.listFactors();if(factors.error)throw factors.error;
     const verified=(factors.data?.totp||[]).filter(x=>x.status==='verified');
-    if(!verified.length){await beginMfaEnrollment();return}
-    showModal(`<div class="dialog-head"><h2>Two-factor authentication</h2><button data-close>✕</button></div><p>At least one authenticator is required for this account.</p>${verified.map(f=>`<div class="row panel-lite"><span>${esc(f.friendly_name||'Authenticator')}</span>${verified.length>1?`<button data-unenroll="${f.id}">Remove</button>`:''}</div>`).join('')}<button class="primary" id="add-mfa-factor">Add backup authenticator</button><p class="fine">Add a backup authenticator before replacing your only factor.</p>`);
-    $('#add-mfa-factor').onclick=()=>{closeModal();beginMfaEnrollment()};
-    document.querySelectorAll('[data-unenroll]').forEach(b=>b.onclick=async()=>{const {error}=await supabase.auth.mfa.unenroll({factorId:b.dataset.unenroll});if(error)toast(error.message);else{closeModal();toast('Authenticator removed.');await refresh()}});
+    if(!verified.length){
+      const pending=await getServerPendingMfa();
+      if(pending.length){showPendingMfaVerification(pending[0].id);return}
+      await beginMfaEnrollment();return;
+    }
+    showModal(`<div class="dialog-head"><h2>Two-factor authentication</h2><button data-close>✕</button></div><p>2FA is enabled for this account. You can add another authenticator or disable an existing one during sandbox testing.</p>${verified.map(f=>`<div class="row panel-lite"><span>${esc(f.friendly_name||'Authenticator')}</span><button data-unenroll="${f.id}">Disable</button></div>`).join('')}<button class="primary" id="add-mfa-factor">Add another authenticator</button>`);
+    $('#add-mfa-factor').onclick=()=>{closeModal();beginMfaEnrollment({skipPendingCheck:false})};
+    document.querySelectorAll('[data-unenroll]').forEach(b=>b.onclick=async()=>{try{const {error}=await supabase.auth.mfa.unenroll({factorId:b.dataset.unenroll});if(error)throw error;await supabase.auth.refreshSession();closeModal();toast('Two-factor authentication disabled for that authenticator.');await refresh()}catch(err){toast(errorText(err))}});
   }catch(err){toast(errorText(err))}
 }
 
