@@ -5,7 +5,7 @@ Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app b
 ## Live architecture
 
 - **Frontend:** static mobile-first ES modules, deployable to GitHub Pages.
-- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and required TOTP MFA. New users must complete authenticator setup before profile creation or marketplace access, and RLS/Storage/Edge Functions require an `aal2` session.
+- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and optional TOTP MFA. During sandbox testing, users without a verified factor can continue at `aal1`; once a user enables a verified authenticator factor, RLS and Storage require an `aal2` session for that account.
 - **Database:** Supabase Postgres with RLS on every exposed application table.
 - **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
 - **Realtime:** Supabase Realtime for message inserts.
