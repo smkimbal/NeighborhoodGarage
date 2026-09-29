@@ -43,3 +43,5 @@ Local checks: `npm test` (seven assertions), `npm run check:edge`, `npm run buil
 The original local unfinished SQLite backend was preserved and not copied over this Supabase branch.
 
 Cleanup completed: all three temporary QA identities, their test tools/messages/rentals/reviews/credits, and five uploaded Storage objects were removed. The original user account was preserved. No Stripe charges or connected accounts were created.
+
+Deployment follow-up: both native branch Pages and the custom Actions workflow run for this branch. The branch now includes reproducible browser bundles, so native publishing cannot overwrite the site with uncompiled npm imports. Both deployment paths use the same static assets.
