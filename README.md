@@ -2,7 +2,7 @@
 
 Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.
 
-See [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe sandbox credentials and Connect were configured during the September 29 verification. The combined Stripe Sync webhook is deployed; a complete rental-to-payout sandbox journey remains to be validated. Tool identification runs locally in the browser; external AI photo processing remains disabled. See [hosting readiness](docs/HOSTING.md).
+See the [latest walkthrough](docs/WALKTHROUGH.md), [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe sandbox credentials and Connect were configured during the September 29 verification. The combined Stripe Sync webhook is deployed; a complete rental-to-payout sandbox journey remains to be validated. Tool identification runs locally in the browser; external AI photo processing remains disabled. See [hosting readiness](docs/HOSTING.md).
 
 ## Live architecture
 

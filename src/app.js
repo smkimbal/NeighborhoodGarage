@@ -58,21 +58,24 @@ async function bootstrap(){
 async function refresh({quiet=false}={}){
   if(quiet&&(modal.open||foregroundRequests))return;
   if(!quiet)foregroundRequests++;
-  const refreshId=++refreshSequence;
+  const refreshId=++refreshSequence,accountId=user?.id;
+  const isCurrent=()=>refreshId===refreshSequence&&user?.id===accountId;
   if(!user){closeModal();chatDrafts.clear();nearbyLocation=null;profile=null;tools=[];rentals=[];messages=[];reviews=[];credits=0;reputationById.clear();unsubscribeRealtime();render();if(!quiet)foregroundRequests--;return;}
   try{
     const factors=await supabase.auth.mfa.listFactors();
     if(factors.error)throw factors.error;
+    if(!isCurrent())return;
     const verifiedFactors=(factors.data?.totp||[]).filter(x=>x.status==='verified');
     const aal=await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if(aal.error) throw aal.error;
+    if(!isCurrent())return;
     if(passwordRecovery){
       if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
       renderPasswordRecovery();return;
     }
     if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
     const [p,t,r,m,v,c]=await Promise.all([
-      supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',user.id).single(),
+      supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',accountId).single(),
       supabase.from('tools').select('*, owner:profiles!tools_owner_id_fkey(display_name,neighborhood,city,stripe_onboarding_complete)').order('created_at',{ascending:false}),
       supabase.from('rentals').select('*, tool:tools(id,title,tracking_code,photo_path,condition), renter:profiles!rentals_renter_id_fkey(display_name), owner:profiles!rentals_owner_id_fkey(display_name)').order('created_at',{ascending:false}),
       supabase.from('messages').select('*, sender:profiles!messages_sender_id_fkey(display_name), recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true}),
@@ -80,34 +83,39 @@ async function refresh({quiet=false}={}){
       supabase.from('credit_ledger').select('amount_cents')
     ]);
     for(const x of [p,t,r,m,v,c]) if(x.error) throw x.error;
-    if(refreshId!==refreshSequence)return;
-    profile=p.data;tools=t.data||[];rentals=r.data||[];messages=m.data||[];reviews=v.data||[];credits=(c.data||[]).reduce((s,x)=>s+Number(x.amount_cents||0),0);
-    await hydratePhotos();
-    await hydrateReputation();
+    if(!isCurrent())return;
+    const nextTools=t.data||[],nextRentals=r.data||[],nextMessages=m.data||[];
+    await hydratePhotos(nextTools,nextRentals);
+    if(!isCurrent())return;
+    const nextReputation=await hydrateReputation(accountId,nextTools,nextMessages);
+    if(!isCurrent())return;
+    profile=p.data;tools=nextTools;rentals=nextRentals;messages=nextMessages;reviews=v.data||[];credits=(c.data||[]).reduce((s,x)=>s+Number(x.amount_cents||0),0);
+    reputationById.clear();for(const [id,metrics] of nextReputation)reputationById.set(id,metrics);
     subscribeRealtime();
     if(!quiet||['/garage','/rentals'].includes(route.split('?')[0]))render();
-  }catch(e){if(refreshId!==refreshSequence||quiet)return;app.innerHTML=`<main class="shell"><div class="alert error"><h2>Could not load your account</h2><p>${esc(errorText(e))}</p><button id="retry-account">Try again</button> <button id="signout-error">Sign out</button></div></main>`;$('#retry-account').onclick=()=>refresh();$('#signout-error').onclick=()=>supabase.auth.signOut()}finally{if(!quiet)foregroundRequests--;}
+  }catch(e){if(!isCurrent()||quiet)return;app.innerHTML=`<main class="shell"><div class="alert error"><h2>Could not load your account</h2><p>${esc(errorText(e))}</p><button id="retry-account">Try again</button> <button id="signout-error">Sign out</button></div></main>`;$('#retry-account').onclick=()=>refresh();$('#signout-error').onclick=()=>supabase.auth.signOut()}finally{if(!quiet)foregroundRequests--;}
 }
 
-async function hydrateReputation(){
-  reputationById.clear();
-  const ids=[...new Set([user.id,...tools.map(t=>t.owner_id),...messages.flatMap(m=>[m.sender_id,m.recipient_id])])];
+async function hydrateReputation(accountId,loadedTools,loadedMessages){
+  const result=new Map();
+  const ids=[...new Set([accountId,...loadedTools.map(t=>t.owner_id),...loadedMessages.flatMap(m=>[m.sender_id,m.recipient_id])])];
   for(let i=0;i<ids.length;i+=50){
     const {data,error}=await supabase.rpc('reputation_summary',{p_ids:ids.slice(i,i+50)});
-    if(error){console.warn('Reputation unavailable',error.code);return;}
-    for(const row of data||[])reputationById.set(row.user_id,{listed:Number(row.listed),borrowed:Number(row.borrowed),lent:Number(row.lent),reviewCount:Number(row.review_count),rating:Number(row.rating)});
+    if(error){console.warn('Reputation unavailable',error.code);return result;}
+    for(const row of data||[])result.set(row.user_id,{listed:Number(row.listed),borrowed:Number(row.borrowed),lent:Number(row.lent),reviewCount:Number(row.review_count),rating:Number(row.rating)});
   }
+  return result;
 }
 function metricsFor(id){return reputationById.get(id)||{listed:0,borrowed:0,lent:0,reviewCount:0,rating:0};}
 function badgeTag(id){const badge=featuredBadge(metricsFor(id));return badge?`<span class="badge-tag" title="Earned community badge">${badge.icon} ${esc(badge.name)}</span>`:'';}
 
-async function hydratePhotos(){
-  await Promise.all(tools.map(async t=>{
+async function hydratePhotos(loadedTools,loadedRentals){
+  await Promise.all(loadedTools.map(async t=>{
     if(!t.photo_path){t.photo_url='';return}
     const {data}=await supabase.storage.from('tool-photos').createSignedUrl(t.photo_path,3600);
     t.photo_url=data?.signedUrl||'';
   }));
-  await Promise.all(rentals.map(async r=>{
+  await Promise.all(loadedRentals.map(async r=>{
     if(r.baseline_photo_path){const result=await supabase.storage.from('tool-photos').createSignedUrl(r.baseline_photo_path,1800);r.baseline_photo_url=result.data?.signedUrl||'';}
     if(!r.return_photo_path)return;
     const {data}=await supabase.storage.from('return-photos').createSignedUrl(r.return_photo_path,1800);
@@ -117,7 +125,8 @@ async function hydratePhotos(){
 
 function subscribeRealtime(){
   if(realtimeChannel)return;
-  realtimeChannel=supabase.channel('ng-marketplace').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},async()=>{const result=await supabase.from('messages').select('*,sender:profiles!messages_sender_id_fkey(display_name),recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true});if(!result.error){messages=result.data||[];if(route.startsWith('/messages')&&!modal.open){renderMessages($('#content'));}}});
+  const accountId=user.id;
+  realtimeChannel=supabase.channel('ng-marketplace').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},async()=>{const result=await supabase.from('messages').select('*,sender:profiles!messages_sender_id_fkey(display_name),recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true});if(!result.error&&user?.id===accountId){messages=result.data||[];if(route.startsWith('/messages')&&!modal.open){renderMessages($('#content'));}}});
   for(const table of ['rentals','tools','reviews'])realtimeChannel.on('postgres_changes',{event:'*',schema:'public',table},payload=>{if(table==='rentals'&&payload.new?.owner_id===user?.id&&payload.new?.status==='review')toast('A tool was returned. Open My garage to review its condition.');clearTimeout(marketplaceTimer);marketplaceTimer=setTimeout(()=>refresh({quiet:true}),350);});
   realtimeChannel.subscribe();
 }
@@ -195,7 +204,7 @@ function renderExplore(root){
   };
   $('#search').oninput=draw;$('#category').onchange=draw;
   $('#radius').onchange=()=>{if(!nearbyLocation&&$('#radius').value){toast('Use your location first to filter by distance.');$('#radius').value='';}draw();};
-  $('#locate').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{nearbyLocation=await getLocation();$('#location-status').textContent='Location found. Open Map to see your blue marker; nearby tools are sorted first. Your exact position stays in this browser session.';draw();}catch(err){toast(errorText(err));$('#location-status').textContent=errorText(err);}finally{setBusy(b,false);}};
+  $('#locate').onclick=async e=>{const b=e.currentTarget,accountId=user.id,status=$('#location-status');setBusy(b);try{const found=await getLocation();if(user?.id!==accountId||!b.isConnected)return;nearbyLocation=found;status.textContent='Location found. Open Map to see your blue marker; nearby tools are sorted first. Your exact position stays in this browser session.';draw();}catch(err){if(user?.id===accountId&&b.isConnected){toast(errorText(err));status.textContent=errorText(err);}}finally{setBusy(b,false);}};
   const view=on=>{mapVisible=on;$('#neighborhood-map').classList.toggle('hidden',!on);$('#map-status').classList.toggle('hidden',!on);for(const id of ['list-view','map-view']){$('#'+id).classList.toggle('active',(id==='map-view')===on);$('#'+id).setAttribute('aria-pressed',String((id==='map-view')===on));}draw();};
   $('#map-view').onclick=()=>view(true);$('#list-view').onclick=()=>view(false);draw();
 }
