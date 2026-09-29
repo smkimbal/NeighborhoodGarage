@@ -1,4 +1,4 @@
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.0';
+import { createClient } from '@supabase/supabase-js';
 const cfg = window.NG_CONFIG || {};
 if(!cfg.supabaseUrl || !cfg.supabaseKey) throw new Error('Supabase configuration is missing.');
 export const supabase = createClient(cfg.supabaseUrl,cfg.supabaseKey,{

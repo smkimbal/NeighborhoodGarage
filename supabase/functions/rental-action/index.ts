@@ -1,8 +1,45 @@
-import { createClient } from "npm:@supabase/supabase-js@2.95.0";
-const allowedOrigins=new Set(["https://smkimbal.github.io","http://localhost:5173","http://127.0.0.1:5173","http://localhost:3000","http://127.0.0.1:3000"]);
-function cors(req:Request){const origin=req.headers.get("Origin")||"";return{"Access-Control-Allow-Origin":allowedOrigins.has(origin)?origin:"https://smkimbal.github.io","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS","Vary":"Origin","Content-Type":"application/json"}}
-function envKey(name:string,key="default"){const raw=Deno.env.get(name);if(!raw)throw new Error("Missing "+name);return JSON.parse(raw)[key]}
-
-function requireAal2(authHeader:string){const token=authHeader.replace(/^Bearer\s+/,'');const part=token.split('.')[1];if(!part)throw new Error('Invalid session token.');const base=part.replace(/-/g,'+').replace(/_/g,'/');const padded=base+'='.repeat((4-base.length%4)%4);const claims=JSON.parse(atob(padded));if(claims.aal!=='aal2')throw new Error('Complete two-factor authentication before continuing.');}
-async function stripe(path:string,method="GET",body?:URLSearchParams){const key=Deno.env.get("STRIPE_SECRET_KEY");if(!key)throw new Error("Stripe is not configured yet.");const r=await fetch("https://api.stripe.com"+path,{method,headers:{Authorization:"Bearer "+key,...(body?{"Content-Type":"application/x-www-form-urlencoded"}:{})},body});const j=await r.json();if(!r.ok)throw new Error(j.error?.message||"Stripe request failed.");return j}
-Deno.serve(async(req)=>{const headers=cors(req);if(req.method==="OPTIONS")return new Response("ok",{headers});try{const auth=req.headers.get("Authorization");if(!auth?.startsWith("Bearer "))throw new Error("Sign in required.");const url=Deno.env.get("SUPABASE_URL")!;const userClient=createClient(url,envKey("SUPABASE_PUBLISHABLE_KEYS"),{global:{headers:{Authorization:auth}}});const admin=createClient(url,envKey("SUPABASE_SECRET_KEYS"),{auth:{persistSession:false}});const{data:{user},error:userError}=await userClient.auth.getUser();if(userError||!user)throw new Error("Invalid session.");const{rentalId,action,code,returnPhotoPath,handoffMethod,assessment}=await req.json();const{data:rental,error}=await admin.from("rentals").select("*, tool:tools(id,title,tracking_code), owner:profiles!rentals_owner_id_fkey(stripe_account_id,stripe_onboarding_complete)").eq("id",rentalId).single();if(error||!rental)throw new Error("Rental not found.");let next:Record<string,unknown>={};if(action==="pickup"){if(rental.renter_id!==user.id||rental.status!=="reserved")throw new Error("Pickup is not available.");if(String(code||"").toUpperCase()!==String(rental.tool?.tracking_code||"").toUpperCase())throw new Error("Tracking code does not match.");next={status:"out"}}else if(action==="return"){if(rental.renter_id!==user.id||rental.status!=="out")throw new Error("Return is not available.");if(!returnPhotoPath)throw new Error("A return photo is required.");next={status:"review",return_photo_path:returnPhotoPath,handoff_method:handoffMethod||"scan",assessment:assessment||{}}}else if(action==="approve"){if(rental.owner_id!==user.id||rental.status!=="review")throw new Error("Approval is not available.");if(!rental.owner?.stripe_account_id||!rental.owner?.stripe_onboarding_complete)throw new Error("Complete payout setup before approving this return.");let transferId=rental.stripe_transfer_id;if(!transferId&&rental.owner_payout_cents>0){if(!rental.stripe_payment_intent_id)throw new Error("Payment record is incomplete.");const pi=await stripe("/v1/payment_intents/"+encodeURIComponent(rental.stripe_payment_intent_id));const chargeId=typeof pi.latest_charge==="string"?pi.latest_charge:pi.latest_charge?.id;if(!chargeId)throw new Error("Stripe charge is not available yet.");const p=new URLSearchParams();p.set("amount",String(rental.owner_payout_cents));p.set("currency","usd");p.set("destination",rental.owner.stripe_account_id);p.set("source_transaction",chargeId);p.set("transfer_group","RENTAL_"+rental.id);p.set("metadata[rental_id]",rental.id);const tr=await stripe("/v1/transfers","POST",p);transferId=tr.id;await admin.from("rentals").update({stripe_charge_id:chargeId,stripe_transfer_id:transferId}).eq("id",rental.id)}const{error:creditError}=await admin.from("credit_ledger").insert({user_id:rental.renter_id,rental_id:rental.id,amount_cents:rental.deposit_cents,reason:"deposit_refund",idempotency_key:"deposit_refund:"+rental.id});if(creditError&&creditError.code!=="23505")throw creditError;next={status:"complete",completed_at:new Date().toISOString(),stripe_transfer_id:transferId};await admin.from("tools").update({available:true}).eq("id",rental.tool_id)}else if(action==="cancel"){if(rental.renter_id!==user.id||rental.status!=="pending_payment")throw new Error("Cancellation is not available.");if(rental.stripe_checkout_session_id){try{await stripe("/v1/checkout/sessions/"+encodeURIComponent(rental.stripe_checkout_session_id)+"/expire","POST",new URLSearchParams())}catch(_){}}next={status:"cancelled"};await admin.from("tools").update({available:true}).eq("id",rental.tool_id)}else if(action==="dispute"){if(rental.owner_id!==user.id||rental.status!=="review")throw new Error("Dispute is not available.");next={status:"disputed"}}else throw new Error("Unknown rental action.");const{data:updated,error:updateError}=await admin.from("rentals").update(next).eq("id",rental.id).select("*").single();if(updateError)throw updateError;return new Response(JSON.stringify({rental:updated}),{headers})}catch(e){return new Response(JSON.stringify({error:e.message||"Action failed."}),{status:400,headers})}});
+import {authenticate,checked,endpoint,HttpError,stripeClient} from '../_shared/runtime.ts';
+import {assessReturn} from '../_shared/vision.ts';
+Deno.serve(endpoint(async req=>{
+ const {user,admin}=await authenticate(req);
+ const body=await req.json(),{rentalId,action}=body;
+ let r=checked(await admin.from('rentals').select('*').eq('id',rentalId).single());
+ if(![r.owner_id,r.renter_id].includes(user.id))throw new HttpError('Rental not found.',404);
+ let data:Record<string,unknown>={code:body.code};
+ if(action==='return'){
+  if(r.renter_id!==user.id||r.status!=='out')throw new HttpError('Return is unavailable.');
+  const path=String(body.returnPhotoPath||'');
+  if(!path.startsWith(`${user.id}/${r.id}/`))throw new HttpError('Invalid return photo.');
+  checked(await admin.storage.from('return-photos').download(path));
+  let assessment:Record<string,unknown>={source:'manual',note:'AI is unavailable. The owner must compare the original and return photographs.'};
+  if(Deno.env.get('OPENAI_API_KEY')){
+   try{checked(await admin.rpc('take_ai_slot',{p_user:user.id}));assessment=await assessReturn(admin,r,path);}catch{assessment.note='AI could not assess this return. Owner review is required.';}
+  }
+  data={photo:path,handoff:body.handoffMethod,code:body.code,assessment:{...assessment,renterNote:String(body.note||'').slice(0,500)}};
+ }
+ if(action==='cancel'){
+  if(r.renter_id!==user.id||r.status!=='pending_payment')throw new HttpError('Cancellation is not available.');
+  // Never free a tool after an ambiguous network error or already completed payment.
+  if(!r.stripe_checkout_session_id)throw new HttpError('Checkout is still being created. Retry checkout to recover its session before cancelling.');
+  const stripe=stripeClient();
+  const session=await stripe.checkout.sessions.retrieve(r.stripe_checkout_session_id);
+  if(session.status==='complete')throw new HttpError('Payment is processing or complete; this checkout cannot be cancelled.');
+  if(session.status!=='expired')await stripe.checkout.sessions.expire(session.id);
+ }
+ if(action!=='retry-payout')r=checked(await admin.rpc('change_rental',{p_user:user.id,p_rental:r.id,p_action:action,p_data:data}));
+ let payoutWarning:string|undefined;
+ if((action==='approve'||action==='retry-payout')&&r.owner_id===user.id&&r.status==='complete'&&r.payout_status==='pending'){
+  try{
+   const owner=checked(await admin.from('profiles').select('stripe_account_id,stripe_onboarding_complete').eq('id',user.id).single());
+   if(!owner||!owner.stripe_account_id||!owner.stripe_onboarding_complete)throw new Error('Finish owner payout setup.');
+   const stripe=stripeClient();
+   // Credits may fund this loan: pay from the platform balance rather than an unrelated card charge.
+   const prior=await stripe.transfers.list({transfer_group:'RENTAL_'+r.id,limit:100});
+   const previous=prior.data.find(t=>t.metadata.rental_id===r.id&&t.amount===r.owner_payout_cents&&t.destination===owner.stripe_account_id);
+   const transfer=previous||await stripe.transfers.create({amount:r.owner_payout_cents,currency:'usd',destination:owner.stripe_account_id,transfer_group:'RENTAL_'+r.id,metadata:{rental_id:r.id}},{idempotencyKey:'ng-owner-payout-'+r.id});
+   r=checked(await admin.from('rentals').update({stripe_transfer_id:transfer.id,payout_status:'paid'}).eq('id',r.id).select('*').single());
+  }catch{payoutWarning='Deposit credits were returned. Owner payout is pending; retry from My garage after checking Stripe balance and payout setup.';}
+ }
+ if(action==='retry-payout'&&(r.owner_id!==user.id||r.status!=='complete'))throw new HttpError('Payout retry is unavailable.');
+ return {rental:r,payoutWarning};
+}));

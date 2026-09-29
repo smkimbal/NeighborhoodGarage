@@ -1,63 +1,30 @@
-import { createClient } from "npm:@supabase/supabase-js@2.95.0";
-const origins=new Set(["https://smkimbal.github.io","http://localhost:5173","http://127.0.0.1:5173","http://localhost:3000","http://127.0.0.1:3000"]);
-const cors=(req:Request)=>{const o=req.headers.get("Origin")||"";return{"Access-Control-Allow-Origin":origins.has(o)?o:"https://smkimbal.github.io","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type","Access-Control-Allow-Methods":"POST, OPTIONS","Content-Type":"application/json","Vary":"Origin"}};
-const envKey=(name:string)=>JSON.parse(Deno.env.get(name)||"{}").default;
-
-function requireAal2(authHeader:string){const token=authHeader.replace(/^Bearer\s+/,'');const part=token.split('.')[1];if(!part)throw new Error('Invalid session token.');const base=part.replace(/-/g,'+').replace(/_/g,'/');const padded=base+'='.repeat((4-base.length%4)%4);const claims=JSON.parse(atob(padded));if(claims.aal!=='aal2')throw new Error('Complete two-factor authentication before continuing.');}
-function checkedReturnUrl(raw:string){const u=new URL(raw);if(!origins.has(u.origin))throw new Error("Invalid Stripe return URL.");return u.toString();}
-async function stripe(path:string,method="GET",body?:URLSearchParams){
-  const key=Deno.env.get("STRIPE_SECRET_KEY"); if(!key) throw new Error("Stripe is not configured yet.");
-  const r=await fetch("https://api.stripe.com"+path,{method,headers:{Authorization:"Bearer "+key,...(body?{"Content-Type":"application/x-www-form-urlencoded"}:{})},body});
-  const j=await r.json(); if(!r.ok) throw new Error(j.error?.message||"Stripe request failed."); return j;
-}
-Deno.serve(async req=>{
- const headers=cors(req); if(req.method==="OPTIONS") return new Response("ok",{headers});
- try{
-   const auth=req.headers.get("Authorization"); if(!auth?.startsWith("Bearer ")) throw new Error("Sign in required.");
-   const url=Deno.env.get("SUPABASE_URL")!;
-   const userClient=createClient(url,envKey("SUPABASE_PUBLISHABLE_KEYS"),{global:{headers:{Authorization:auth}}});
-   const admin=createClient(url,envKey("SUPABASE_SECRET_KEYS"),{auth:{persistSession:false}});
-   const {data:{user},error:userErr}=await userClient.auth.getUser(); if(userErr||!user) throw new Error("Invalid session.");
-   const {data:profile,error:profileErr}=await admin.from("profiles").select("*").eq("id",user.id).single(); if(profileErr||!profile) throw new Error("Profile not found.");
-   const body=await req.json().catch(()=>({})); const action=body.action||"onboard";
-   let accountId=profile.stripe_account_id;
-   if(action==="onboard"){
-     if(!accountId){
-       const p=new URLSearchParams();
-       p.set("country","US");
-       if(user.email) p.set("email",user.email);
-       p.set("controller[fees][payer]","application");
-       p.set("controller[losses][payments]","application");
-       p.set("controller[stripe_dashboard][type]","express");
-       p.set("controller[requirement_collection]","stripe");
-       p.set("capabilities[transfers][requested]","true");
-       p.set("metadata[supabase_user_id]",user.id);
-       const acct=await stripe("/v1/accounts","POST",p);
-       accountId=acct.id;
-       await admin.from("profiles").update({stripe_account_id:accountId}).eq("id",user.id);
-     }
-     const account=await stripe("/v1/accounts/"+encodeURIComponent(accountId));
-     const complete=!!account.details_submitted && !!account.payouts_enabled;
-     await admin.from("profiles").update({stripe_onboarding_complete:complete}).eq("id",user.id);
-     if(complete) return new Response(JSON.stringify({complete:true,accountId}),{headers});
-     const p=new URLSearchParams();
-     p.set("account",accountId); p.set("type","account_onboarding");
-     p.set("refresh_url",checkedReturnUrl(body.refreshUrl)); p.set("return_url",checkedReturnUrl(body.returnUrl));
-     const link=await stripe("/v1/account_links","POST",p);
-     return new Response(JSON.stringify({complete:false,url:link.url,accountId}),{headers});
-   }
-   if(action==="status"){
-     if(!accountId) return new Response(JSON.stringify({complete:false}),{headers});
-     const account=await stripe("/v1/accounts/"+encodeURIComponent(accountId));
-     const complete=!!account.details_submitted && !!account.payouts_enabled;
-     await admin.from("profiles").update({stripe_onboarding_complete:complete}).eq("id",user.id);
-     return new Response(JSON.stringify({complete,accountId}),{headers});
-   }
-   if(action==="dashboard"){
-     if(!accountId) throw new Error("Set up payouts first.");
-     const login=await stripe("/v1/accounts/"+encodeURIComponent(accountId)+"/login_links","POST",new URLSearchParams());
-     return new Response(JSON.stringify({url:login.url}),{headers});
-   }
-   throw new Error("Unknown action.");
- }catch(e){return new Response(JSON.stringify({error:e.message||"Connect setup failed."}),{status:400,headers});}
-});
+import {authenticate,checked,checkedUrl,endpoint,HttpError,stripeClient} from '../_shared/runtime.ts';
+Deno.serve(endpoint(async req=>{
+ const {user,admin}=await authenticate(req);
+ const body=await req.json(),action=body.action||'onboard';
+ if(!['onboard','status','dashboard'].includes(action))throw new HttpError('Unknown Connect action.');
+ const stripe=stripeClient();
+ const profile=checked(await admin.from('profiles').select('*').eq('id',user.id).single());
+ let accountId=profile.stripe_account_id;
+ if(action==='onboard'&&!accountId){
+  // Validate redirects before creating any external account.
+  checkedUrl(body.returnUrl);checkedUrl(body.refreshUrl);
+  const account=await stripe.v2.core.accounts.create({
+   contact_email:user.email,display_name:profile.display_name||'Neighborhood Garage owner',
+   dashboard:'express',identity:{country:'us'},
+   defaults:{responsibilities:{fees_collector:'application',losses_collector:'application'}},
+   configuration:{recipient:{capabilities:{stripe_balance:{stripe_transfers:{requested:true}}}}},
+   metadata:{supabase_user_id:user.id},include:['configuration.recipient']
+  },{idempotencyKey:`ng-connect-${user.id}`});
+  accountId=account.id;
+  checked(await admin.from('profiles').update({stripe_account_id:accountId}).eq('id',user.id));
+ }
+ if(!accountId)return {complete:false,mode:Deno.env.get('STRIPE_MODE')||'sandbox'};
+ if(action==='dashboard')return {url:(await stripe.accounts.createLoginLink(accountId)).url};
+ const account=await stripe.v2.core.accounts.retrieve(accountId,{include:['configuration.recipient','requirements']});
+ const complete=account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status==='active';
+ checked(await admin.from('profiles').update({stripe_onboarding_complete:complete}).eq('id',user.id));
+ if(action==='status'||complete)return {complete,mode:Deno.env.get('STRIPE_MODE')||'sandbox'};
+ const link=await stripe.v2.core.accountLinks.create({account:accountId,use_case:{type:'account_onboarding',account_onboarding:{configurations:['recipient'],refresh_url:checkedUrl(body.refreshUrl),return_url:checkedUrl(body.returnUrl)}}});
+ return {complete:false,url:link.url,mode:Deno.env.get('STRIPE_MODE')||'sandbox'};
+}));
