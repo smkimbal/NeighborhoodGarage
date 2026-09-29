@@ -68,3 +68,9 @@ Deployment follow-up: both native branch Pages and the custom Actions workflow r
 - Confirmed the managed signing secret exists without fetching or logging it. An invalid signature returned HTTP 400. A genuine sandbox `customer.created` event returned HTTP 200 from deployed version 6 and synchronized its test customer into Postgres. This verifies the actual managed signing-secret path. No payment or charge was created.
 - Temporary sandbox customer `cus_VLi2p5RQBq5Osu` is labeled as webhook verification. The connector did not expose a customer-deletion operation during cleanup discovery; it remains as an empty test record, with no email, payment method, or personal data.
 - Full owner onboarding and a paid rental still require a user to complete Stripe-hosted test onboarding and checkout. The configuration block has been removed; no production settings were changed.
+
+## Owner listing lifecycle (2026-09-29)
+
+Added Edit, Remove, and Restore controls to My garage. Editing reuses the existing photo unless a replacement is selected and preserves paused availability. Removal archives the listing and makes it unavailable; past rental/review/photo references remain intact. Removed listings can be restored as paused and activated explicitly. Active rentals block edits/removal both in the UI and the existing database trigger.
+
+Verified mobile browser flows for edit without a replacement photo, confirmed removal, and restore-as-paused. `tests/listing-lifecycle.sql` passed against Supabase in a rolled-back transaction: active-rental edit/archive rejected, archived activation and rental rejected, and inactive edit/restore succeeded. No real listings were changed by the tests.

@@ -23,7 +23,7 @@ try{
   else if(p.endsWith('/auth/v1/user'))data=identity;
   else if(p.endsWith('/auth/v1/factors'))data={totp:[],phone:[]};
   else if(p.endsWith('/rest/v1/profiles'))data=profile;
-  else if(p.endsWith('/rest/v1/tools'))data=listings;
+  else if(p.endsWith('/rest/v1/tools')){if(method==='PATCH'){const id=url.searchParams.get('id')?.replace('eq.','');const item=listings.find(t=>t.id===id);Object.assign(item,route.request().postDataJSON());data={id:item.id};}else data=listings;}
   else if(p.endsWith('/rest/v1/rentals')||p.endsWith('/rest/v1/messages')||p.endsWith('/rest/v1/reviews')||p.endsWith('/rest/v1/credit_ledger'))data=[];
   else if(p.endsWith('/rest/v1/rpc/reputation_summary'))data=[{user_id:me,listed:1,borrowed:3,lent:1,review_count:0,rating:0},{user_id:owner,listed:3,borrowed:0,lent:10,review_count:10,rating:4.9}];
   else if(p.includes('/storage/v1/'))data=[];
@@ -35,5 +35,8 @@ try{
  await page.getByRole('button',{name:'Profile',exact:true}).click();await page.locator('#account-tab').waitFor();await page.locator('#badges-tab').click();await page.locator('#profile-badges:not(.hidden)').waitFor();assert(await page.locator('.earned-badge.earned').count()>=1);console.log('PASS badge tab and milestone progress');
  await page.getByRole('link',{name:'See what neighbors see'}).click();await page.getByRole('heading',{name:'Earned badges'}).waitFor();console.log('PASS neighbor-facing badges');
  await page.getByRole('link',{name:'Explore',exact:true}).click();await page.getByRole('heading',{name:'Big plans. Neighborly prices.'}).waitFor();await page.locator('.tool-card .badge-tag').waitFor();assert.match(await page.locator('.tool-card .badge-tag').textContent(),/Neighborhood favorite/);assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);console.log('PASS earned badge on mobile tool card');
+ await page.getByRole('link',{name:'My garage',exact:true}).click();await page.locator('[data-edit]').click();await page.locator('#lend-form [name=title]').fill('Updated ladder');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.locator('.tool-card h3',{hasText:'Updated ladder'}).waitFor();assert.equal(listings[0].title,'Updated ladder');console.log('PASS owner edits without uploading another photo');
+ await page.locator('[data-remove]').click();await page.locator('#confirm-remove').click();await page.getByRole('heading',{name:'Your garage is empty'}).waitFor();assert.equal(listings[0].available,false);assert(listings[0].archived_at);console.log('PASS removal hides current listing and pauses availability');
+ await page.getByRole('link',{name:'View removed listings'}).click();await page.locator('[data-restore]').click();await page.getByRole('heading',{name:'No removed listings'}).waitFor();assert.equal(listings[0].archived_at,null);assert.equal(listings[0].available,false);console.log('PASS restore remains paused');
  assert.deepEqual(errors,[]);console.log('PASS no uncaught browser errors');
 }finally{await browser.close();server.close()}
