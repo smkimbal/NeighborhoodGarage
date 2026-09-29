@@ -1,36 +1,73 @@
-# Live backend implementation contract
+# Neighborhood Garage live backend
 
-This directory is a scaffold, not an operating backend. The demo includes no real payments, coverage, image recognition, background removal, identity checks or remote messaging. GitHub Pages cannot run a server. Host the API separately, then set the public HTTPS base URL in config.js. No frontend refactor is required: DemoEngine and LiveEngine expose identical methods.
+This directory now contains two layers:
 
-## Endpoints
+1. A **runnable local prototype** using Node's built-in HTTP server and `node:sqlite` (`server.mjs`, `db.mjs`, `schema.sqlite.sql`).
+2. A **hosted-production migration scaffold** (`schema.sql`) intended for PostgreSQL/Supabase or a comparable managed database.
 
-All endpoints return JSON. Amounts in the frontend state are dollar numbers; persist and calculate amounts using integer cents on the server. Map the database model to the frontend state contract in src/engine.js.
+## Local security model
 
-| Method / path | Request | Response / required enforcement |
-| --- | --- | --- |
-| GET /state | Session cookie | {credits, tools, rentals, messages, reviews}; only authorized data, photos as short-lived signed URLs |
-| POST /tools | title, category, description, condition, rate, deposit, photo | Tool; owner from session; validate photo, prices and text |
-| POST /scans | photo, scenario | {title, category, deposit, condition, damage, part, serial, background}; ignore demo scenario in live mode; compare baseline for authenticated rental; extend with rentalId before production |
-| POST /rentals | toolId, days, idempotencyKey | Rental; lock tool, check availability, compute authoritative quote, charge/authorize using provider, append debit ledger |
-| POST /rentals/:id/pickup | code | Rental; renter-only, reserved -> out, validate label |
-| POST /rentals/:id/return | code, method, photo, assessment | Rental; renter-only, out -> review; disregard client assessment and compute on server |
-| POST /rentals/:id/approve | {} | Rental; owner-only, review -> complete; transactional, idempotent deposit ledger entry |
-| POST /rentals/:id/dispute | {} | Rental; owner-only, review -> disputed; retain escrow |
-| POST /messages | peer, text | Result; resolve peer to authorized user ID on server; encrypt and authorize conversation |
-| POST /rentals/:id/reviews | rating, text | Result; renter-only, one review per completed rental |
+- Account identifiers are normalized and stored as a one-way lookup hash plus an AES-256-GCM encrypted copy for provider delivery.
+- Passwords are scrypt-hashed with per-user random salts.
+- Six-digit verification codes are generated with cryptographic randomness, HMAC-hashed, expire after 10 minutes, and lock after repeated failures.
+- Contact verification creates only a limited `verified` session.
+- TOTP setup must succeed before that session is upgraded to `full`.
+- Login requires password first, then a short-lived TOTP challenge.
+- Session cookies are HttpOnly and the database stores only SHA-256 token hashes.
+- State-changing requests require the `X-NG-Request: web` header. CORS is restricted to `NG_ALLOWED_ORIGINS`.
+- Profile private fields, TOTP secrets, return photos, and message bodies are encrypted with AES-256-GCM.
+- Credit balances are derived from an append-only ledger rather than accepted from the browser.
+- Rental prices, deposit amounts, owner identity, tool availability, refund eligibility, and owner approval are computed/authorized server-side.
+- A unique active-rental index protects against double-booking and a unique deposit-refund ledger key protects against duplicate refunds.
 
-Production integration should replace display-name peer addressing with server-issued stable user IDs and supply authenticated profile data instead of the demo profile. Add availability dates, actual provider-backed payments, support resolution, consented pickup addresses, identity onboarding, configurable insurance terms and cancellation/refund rules before real operation.
+## Provider adapters
 
-## Security architecture
+### Verification
 
-Use PostgreSQL with a Node API, or Supabase with server functions. schema.sql enables RLS and intentionally supplies no permissive policies. Add tested policies allowing owners to manage only their tools, renters/owners to see their own rentals, chat participants to read their conversations, and users to see only their own credit ledger. The public catalog must expose approximate locations only. Never expose a service-role key to Pages.
+- Email: Resend (`RESEND_API_KEY`, `RESEND_FROM`)
+- SMS: Twilio (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`)
+- Local fallback: logs and returns the verification code only outside production.
 
-Authenticate using Secure, HttpOnly cookies with a deliberate SameSite configuration. Restrict CORS to https://smkimbal.github.io, check Origin and CSRF tokens/custom-header preflight, rate-limit writes and bound request sizes. Use TLS. Third-party cookie restrictions may require a same-site custom domain or a reviewed PKCE token approach with tokens held in memory, not localStorage.
+### AI image analysis
 
-Envelope-encrypt profile/contact fields and chat bodies with authenticated encryption and per-record nonces, backed by a KMS-held key. The ciphertext columns are placeholders, not encryption by themselves. Keep original and processed photos in private object storage, strip EXIF, validate decoded image types and size, and use short-lived signed URLs. Production uploads should use signed upload endpoints with server-side validation; the adapter currently sends compressed data URLs for a simple integration contract.
+Set `OPENAI_API_KEY`. `OPENAI_MODEL` defaults to `gpt-5.6-luna` and can be changed without code changes. The API key remains server-side. The model result is treated as advisory: the owner must review listing fields and return approval remains a human decision.
 
-Payments and credits must be authoritative, transactional, auditable and idempotent. Never trust client prices, scan results, owner identity, credit balances or return approval. Lock the rental and ledger within one transaction. Unique refund keys and one-active-rental index prevent duplicate refunds and double booking. Verify payment webhooks before applying credit. Do not permit the database owner to bypass application authorization accidentally.
+### Payments
 
-Realtime: use authenticated WebSocket/SSE or Supabase Realtime with participant-scoped authorization. The current UI refreshes on navigation/send; add a service subscription method and event callback for pushed remote messages. Demo storage events sync open tabs only. Offline demo mutations are single-browser simulation, not a secure multi-user ledger.
+Set `STRIPE_SECRET_KEY`. The adapter creates/confirms a PaymentIntent only when a development payment method is also supplied through `STRIPE_TEST_PAYMENT_METHOD`. This is intentionally not the final production checkout UX. Replace it with Stripe-hosted/client collection plus verified webhooks before public launch.
 
-Real wear verification needs baseline and return image capture, tool identity checks, a validated comparison model, confidence/uncertainty reporting, human owner concurrence and an appeal process. Do not automatically charge for suspected damage. Disputed deposits require an authenticated support resolution endpoint, deliberately not implemented here.
+Without Stripe credentials, non-production mode produces a clearly marked simulated payment reference so the complete local lifecycle can be tested safely.
+
+## Local data
+
+By default, SQLite data is written under `backend/data/`, which is gitignored. The seed catalog creates six non-login demo neighbors so a newly verified live account has tools to browse immediately.
+
+## API surface
+
+- `GET /health`
+- `POST /auth/signup`
+- `POST /auth/resend`
+- `POST /auth/verify`
+- `POST /auth/2fa/setup`
+- `POST /auth/2fa/enable`
+- `POST /auth/login`
+- `POST /auth/login/2fa`
+- `POST /auth/logout`
+- `GET /profile`
+- `PUT /profile`
+- `GET /state`
+- `POST /tools`
+- `POST /scans`
+- `POST /rentals`
+- `POST /rentals/:id/pickup`
+- `POST /rentals/:id/return`
+- `POST /rentals/:id/approve`
+- `POST /rentals/:id/dispute`
+- `POST /rentals/:id/reviews`
+- `POST /messages`
+
+## Supabase migration direction
+
+Use Supabase Auth rather than duplicating password/session storage once the project moves to hosted infrastructure. Move private photos to private Storage buckets and return only short-lived signed URLs. Keep pricing, credits, payment callbacks, AI provider calls, and owner approval in trusted server/Edge Function code. Apply RLS to every exposed table and create participant/owner policies deliberately; do not expose a service-role key in the frontend.
+
+The included PostgreSQL schema is intentionally deny-by-default and does not claim to be a finished Supabase migration. Generate/review the actual migration after a Supabase project exists so Auth IDs, grants, Storage policies, Realtime publication, and current project settings can be tested against that project.

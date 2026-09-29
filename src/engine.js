@@ -21,9 +21,31 @@ export class DemoEngine {
 }
 export class LiveEngine {
  constructor(base){this.base=base;}
- async request(path,method='GET',body){if(!this.base)throw Error('Live mode needs a backend. Set window.NG_API_BASE in config.js and deploy the API described in backend/README.md.');const url=new URL(this.base);if(url.protocol!=='https:'&&url.hostname!=='localhost')throw Error('Live API requires HTTPS.');const r=await fetch(this.base.replace(/\/$/,'')+path,{method,credentials:'include',headers:{'Content-Type':'application/json','X-NG-Request':'web'},body:body?JSON.stringify(body):undefined});if(!r.ok)throw Error(`Live request failed (${r.status}). Please try again.`);return r.json();}
- state(){return this.request('/state');} listTool(t){return this.request('/tools','POST',t);} scan(photo,scenario){return this.request('/scans','POST',{photo,scenario});} reserve(toolId,days){return this.request('/rentals','POST',{toolId,days,idempotencyKey:crypto.randomUUID()});} transition(id,action,payload){return this.request(`/rentals/${encodeURIComponent(id)}/${action}`,'POST',payload||{});} message(peer,text){return this.request('/messages','POST',{peer,text});} review(id,rating,text){return this.request(`/rentals/${encodeURIComponent(id)}/reviews`,'POST',{rating,text});}
+ async request(path,method='GET',body){
+  if(!this.base)throw Error('Live mode needs a backend. Set window.NG_API_BASE in config.js.');
+  const url=new URL(this.base);if(url.protocol!=='https:'&&!['localhost','127.0.0.1'].includes(url.hostname))throw Error('Live API requires HTTPS outside localhost.');
+  const r=await fetch(this.base.replace(/\/$/,'')+path,{method,credentials:'include',headers:{'Content-Type':'application/json','X-NG-Request':'web'},body:body===undefined?undefined:JSON.stringify(body)});
+  let payload={};try{payload=await r.json();}catch{}
+  if(!r.ok){const e=Error(payload.error||`Live request failed (${r.status}). Please try again.`);e.status=r.status;e.details=payload;e.code=payload.code;throw e;}
+  return payload;
+ }
+ state(){return this.request('/state');}
+ listTool(t){return this.request('/tools','POST',t);}
+ scan(photo,scenario){return this.request('/scans','POST',{photo,scenario});}
+ reserve(toolId,days){return this.request('/rentals','POST',{toolId,days,idempotencyKey:crypto.randomUUID()});}
+ transition(id,action,payload){return this.request(`/rentals/${encodeURIComponent(id)}/${action}`,'POST',payload||{});}
+ message(peer,text){return this.request('/messages','POST',{peer,text});}
+ review(id,rating,text){return this.request(`/rentals/${encodeURIComponent(id)}/reviews`,'POST',{rating,text});}
+ signup(channel,identifier,password){return this.request('/auth/signup','POST',{channel,identifier,password});}
+ verify(accountId,code){return this.request('/auth/verify','POST',{accountId,code});}
+ resend(accountId){return this.request('/auth/resend','POST',{accountId});}
+ setup2FA(){return this.request('/auth/2fa/setup','POST',{});}
+ enable2FA(code){return this.request('/auth/2fa/enable','POST',{code});}
+ login(identifier,password){return this.request('/auth/login','POST',{identifier,password});}
+ login2FA(challengeId,code){return this.request('/auth/login/2fa','POST',{challengeId,code});}
+ logout(){return this.request('/auth/logout','POST',{});}
+ getProfile(){return this.request('/profile');}
+ saveProfile(profile){return this.request('/profile','PUT',profile);}
 }
 export function distance(a,b){const r=Math.PI/180,dlat=(b.lat-a.lat)*r,dlng=(b.lng-a.lng)*r;return 3958.8*2*Math.asin(Math.sqrt(Math.sin(dlat/2)**2+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dlng/2)**2));}
-// Code 39 encodes the tracking ID; start/stop sentinels and quiet zones included.
 export function barcode(code){const patterns={'0':'nnnwwnwnn','1':'wnnwnnnnw','2':'nnwwnnnnw','3':'wnwwnnnnn','4':'nnnwwnnnw','5':'wnnwwnnnn','6':'nnwwwnnnn','7':'nnnwnnwnw','8':'wnnwnnwnn','9':'nnwwnnwnn','N':'nnnnwnnww','G':'nnnnnwwnw','*':'nwnnwnwnn'};let x=16,rects='';for(const c of '*'+code+'*'){if(!patterns[c])throw Error('Unsupported tracking code');[...patterns[c]].forEach((p,i)=>{let w=p==='w'?3:1;if(i%2===0)rects+=`<rect x="${x}" y="5" width="${w}" height="48"/>`;x+=w;});x+=1;}return `<svg role="img" aria-label="Tracking barcode ${code}" viewBox="0 0 ${x+16} 60" xmlns="http://www.w3.org/2000/svg">${rects}</svg>`;}

@@ -1,65 +1,63 @@
 # Neighborhood Garage
 
-Mobile-first, static peer-to-peer tool-sharing demo, built with dependency-free ES modules and CSS. Requires Node 20+ to build/test; Python 3 for the included local server command. No installation step or API keys needed.
+Neighborhood Garage is a mobile-first peer-to-peer tool-sharing prototype. This revision keeps the original Demo Mode and adds a runnable local backend for real account onboarding, persistent user data, two-factor authentication, server-authoritative rentals/credits, encrypted private fields/messages, and provider adapters for email/SMS verification, AI photo analysis, and Stripe.
 
-## Run
+## What works now
+
+- Demo Mode still runs entirely in the browser for quick UI exploration.
+- Live Mode uses the local API at `http://localhost:8787` when the site is opened from localhost.
+- Signup supports email or phone verification.
+- Verification must complete before TOTP two-factor setup.
+- TOTP must be enabled before profile creation and marketplace actions.
+- Sessions use HttpOnly cookies; session tokens are stored only as hashes server-side.
+- Passwords use Node's scrypt implementation with per-user salts.
+- Private profile fields, TOTP secrets, return photos, and message bodies use AES-256-GCM encryption at rest in the local SQLite prototype.
+- Listings, rentals, checkout math, credits, return approval, reviews, and messaging are enforced by the server rather than trusted from browser state.
+- Email verification can use Resend; SMS can use Twilio. With no provider keys in local development, the code is printed to the API console and returned to the local UI.
+- AI photo analysis can use the OpenAI Responses API when `OPENAI_API_KEY` is configured. Without a key, local development returns an explicit development-only result.
+- Stripe has a server-side PaymentIntent adapter. Without a Stripe key, local development uses a clearly marked simulated payment. A proper hosted/client payment-method flow is still required before production use.
+- PostgreSQL/Supabase-oriented schema scaffold remains in `backend/schema.sql`; the runnable local prototype uses `backend/schema.sqlite.sql`.
+
+## Run locally
+
+Requires Node 22.5+ and Python 3.
 
 ```sh
 npm run dev
-# Open http://localhost:5173
-npm test
-npm run build
-# Static output: dist/
+# Web: http://localhost:5173
+# API: http://localhost:8787
 ```
 
-Do not open index.html through file://; JavaScript modules require an HTTP server.
+The first Live Mode account can use the verification code shown in the local API terminal. Use any TOTP-compatible authenticator for the 2FA step.
 
-## Deploy to https://smkimbal.github.io/NeighborhoodGarage/
+To configure real providers, copy `.env.example` to your preferred local environment loader or export the variables before starting. This project intentionally has no runtime npm dependencies.
 
-1. Put this directory's contents at the root of the `smkimbal/NeighborhoodGarage` GitHub repository. For an existing repository, merge deliberately rather than overwriting unrelated work.
-2. In GitHub repository Settings → Pages, select **GitHub Actions** as the source.
-3. Commit and push to `main`. The included `.github/workflows/deploy.yml` tests, builds and deploys `dist/`.
-4. Check the Actions deployment job and open the URL above after it completes.
-
-For a new repository:
+## Verify
 
 ```sh
-git init
-git add .
-git commit -m "Build Neighborhood Garage demo"
-git branch -M main
-git remote add origin https://github.com/smkimbal/NeighborhoodGarage.git
-git push -u origin main
+npm test
+npm run build
 ```
 
-All assets use relative paths and page navigation uses hash routes, so the `/NeighborhoodGarage/` prefix and reloads work without rewrite rules. No external fonts, maps, image services, runtime dependencies or CDNs are required. This package was built locally; it was not pushed to GitHub or published by this session.
+`npm test` covers the original demo lifecycle plus a live API path for signup → verification → TOTP → profile → listing → rental → pickup → return → owner approval → credit refund → review → encrypted chat.
 
-## Try the complete demo
+`tests/browser-smoke.cjs` is retained for browser-level verification and requires Playwright/Chromium to be installed separately:
 
-1. Explore tools, search, choose a category/radius, or open the schematic map. Optional location permission filters distances from your coordinates; seeded tools are in Chicago, so outside Chicago you may see no results.
-2. Reserve a neighbor's tool. $120 initial sample credits apply to the rental and deposit; the remainder is simulated payment.
-3. Open My rentals, simulate the barcode scan or enter the displayed code, and confirm pickup.
-4. Return with a photo and a simulated wear assessment. Scan/enter the code or select agreed location drop-off.
-5. Open My garage to act as the demo owner. Approve to issue deposit credits once, or dispute to retain the deposit. Demo allows role switching explicitly; live must enforce owner identity server-side.
-6. Leave a review on a completed rental. View credits and badges in Profile.
-7. Lend a tool: upload a photo, simulate autofill, correct the fields, set prices and publish. The original image is retained; background removal and AI recognition are simulated, not performed.
-8. Messages are local demo conversations and sync between browser tabs. They do not contact real neighbors.
+```sh
+npm run dev
+npm run test:browser
+```
 
-## Architecture and limitations
+## Deployment split
 
-- src/app.js: responsive pages, semantic controls, native dialog flows and escaped user text.
-- src/engine.js: interchangeable DemoEngine / LiveEngine, escrow math, tracking barcode and persistence.
-- src/style.css: flexible header, mobile grid, touch targets and focus states.
-- backend/: PostgreSQL schema and secure live API contract.
-- config.js: public backend URL only; no secrets.
-- Demo Mode switch persists separately from demo state. Live mode fails closed if no API is configured. It never silently falls back to demo data.
-- Seeded catalog uses tool/category icons, not product photographs. User uploads show actual photos. The map is an interactive schematic, not a street map or navigation service.
-- Barcode is Code 39, supporting NG + numeric IDs. The demo supplies simulated scan and manual entry; live camera decoding is not implemented.
-- LocalStorage has browser quota limits; uploads are resized to 900 pixels. If storage is full, the UI shows the write error. Demo records may contain photos and chat; do not enter sensitive real data. Clear the `ng-demo-v1` key in browser storage to reset.
-- Demo is a single-user sandbox. It is not a transactional, concurrent, fraud-resistant wallet. Production requires the backend controls documented in backend/README.md.
-- Estimated owner earnings use a 5% platform fee deducted from the rental, not the deposit. No actual coverage, banking, cash redemption or insurance is provided.
-- Live backend, auth, true realtime delivery, payment processor, genuine vision/background removal and insurance integration are scaffolds only. These services are not deployable on GitHub Pages itself.
+GitHub Pages can host only the static `dist/` frontend. The backend must run on a server/runtime that can keep secrets and persistent storage. For early hosted prototyping, Supabase remains the recommended next step because it provides Postgres, Auth, Storage, Realtime, and a Free plan; the production migration should explicitly configure grants/RLS and private Storage rather than exposing tables or service-role keys to the browser.
 
-## Verification
+Before a public launch, add a real payment collection UI/hosted checkout, payment webhooks and reconciliation, private object storage with signed URLs, provider-managed email/SMS limits, production KMS/secret management, support/dispute administration, legal/insurance terms, monitoring/backups, abuse controls, and a security review.
 
-`npm test` checks quote math, legal lifecycle transitions, persistence, incorrect tracking codes, duplicate reservations/refunds/reviews, dispute holds and unconfigured live mode. A browser smoke test is provided for mobile overflow and checkout/return/approval/listing flows, but was NOT executed successfully in this environment: no browser binary was available and downloading Chromium failed. See tests/browser-smoke.cjs (requires Playwright and Chromium installed separately). Run the dev server, then `node tests/browser-smoke.cjs`. Rendered layout and browser interactions still require verification.
+## Important security notes
+
+- Never place API, database service-role, Stripe secret, OpenAI, Twilio, or Resend keys in `config.js` or any file served by GitHub Pages.
+- `NG_MASTER_KEY` is required in production. Without it, local development intentionally falls back to a known development-only key.
+- The local SQLite backend is for prototyping. It is not a replacement for managed backups, high availability, production audit logging, or a reviewed authorization model.
+- The browser compresses/re-encodes uploaded images before sending them, which strips normal EXIF metadata, but production object ingestion should still validate decoded file types and strip metadata server-side.
+- Deposits are not automatically refunded as cash in this design; owner-approved deposits are credited to the user's internal Tool Share Credits ledger. Disputes keep the deposit held for support review.
