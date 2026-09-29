@@ -5,7 +5,7 @@ const $=s=>document.querySelector(s);
 const app=$('#app');
 const modal=$('#modal');
 const toastEl=$('#toast');
-let session=null,user=null,profile=null,tools=[],rentals=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null;
+let session=null,user=null,profile=null,tools=[],rentals=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null,passwordRecovery=false;
 const categories=['Power tools','Outdoor','Home & DIY','Garden','Automotive','Other'];
 
 function toast(msg){toastEl.textContent=msg;toastEl.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>toastEl.hidden=true,4200)}
@@ -20,7 +20,12 @@ function tracking(tool){return tool?.tracking_code||('NG'+String(tool?.id||'').r
 async function bootstrap(){
   const {data}=await supabase.auth.getSession();
   session=data.session;user=session?.user||null;
-  supabase.auth.onAuthStateChange(async(_event,s)=>{session=s;user=s?.user||null;await refresh();});
+  supabase.auth.onAuthStateChange((event,s)=>{
+    session=s;user=s?.user||null;
+    if(event==='PASSWORD_RECOVERY')passwordRecovery=true;
+    if(event==='SIGNED_OUT')passwordRecovery=false;
+    setTimeout(()=>refresh(),0);
+  });
   window.addEventListener('hashchange',()=>{route=(location.hash||'#/').slice(1)||'/';render();window.scrollTo(0,0)});
   route=(location.hash||'#/').slice(1)||'/';
   await refresh();
@@ -30,11 +35,19 @@ async function refresh(){
   closeModal();
   if(!user){profile=null;tools=[];rentals=[];messages=[];reviews=[];credits=0;unsubscribeRealtime();render();return;}
   try{
+    const factors=await supabase.auth.mfa.listFactors();
+    if(factors.error)throw factors.error;
+    const verifiedFactors=(factors.data?.totp||[]).filter(x=>x.status==='verified');
     const aal=await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
     if(aal.error) throw aal.error;
-    if(aal.data?.currentLevel==='aal1'&&aal.data?.nextLevel==='aal2'){renderMfaChallenge();return;}
+    if(passwordRecovery){
+      if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
+      renderPasswordRecovery();return;
+    }
+    if(!verifiedFactors.length){renderRequiredMfaEnrollment();return;}
+    if(aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
     const [p,t,r,m,v,c]=await Promise.all([
-      supabase.from('profiles').select('*').eq('id',user.id).single(),
+      supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',user.id).single(),
       supabase.from('tools').select('*, owner:profiles!tools_owner_id_fkey(display_name)').order('created_at',{ascending:false}),
       supabase.from('rentals').select('*, tool:tools(id,title,tracking_code,photo_path,condition), renter:profiles!rentals_renter_id_fkey(display_name), owner:profiles!rentals_owner_id_fkey(display_name)').order('created_at',{ascending:false}),
       supabase.from('messages').select('*, sender:profiles!messages_sender_id_fkey(display_name), recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true}),
@@ -83,7 +96,13 @@ function render(){
   else if(path==='/profile')renderProfile(content);
   else content.innerHTML='<div class="empty"><h2>Page not found</h2><a class="button" href="#/">Back home</a></div>';
   bindGlobal();
-  if(new URLSearchParams(route.split('?')[1]||'').get('stripe')==='return'){setTimeout(()=>refreshStripeStatus(),0);}
+  const params=new URLSearchParams(route.split('?')[1]||'');
+  if(params.get('stripe')==='return'){setTimeout(()=>refreshStripeStatus(),0);}
+  if(params.get('payment')==='cancel'&&params.get('rental')){
+    const rentalId=params.get('rental'),cleanPath=route.split('?')[0];
+    history.replaceState(null,'',location.href.split('#')[0]+'#'+cleanPath);
+    setTimeout(()=>cancelPendingRental(rentalId),0);
+  }
 }
 
 function layout(){
@@ -157,7 +176,7 @@ function renderMessages(root){
 }
 
 function renderProfile(root){
-  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Account & reputation</div><h1>${esc(profile.display_name)}</h1><p>${esc(profile.neighborhood)}, ${esc(profile.city)}, ${esc(profile.state)}</p></div><button id="signout">Sign out</button></section><div class="stats"><div class="stat"><span>Tool Share Credits</span><strong>${money(credits)}</strong></div><div class="stat"><span>Completed rentals</span><strong>${rentals.filter(r=>r.renter_id===user.id&&r.status==='complete').length}</strong></div><div class="stat"><span>Tools listed</span><strong>${tools.filter(t=>t.owner_id===user.id).length}</strong></div></div><div class="two-col"><form id="edit-profile" class="form-card"><h2>Profile</h2><label>Display name<input name="display_name" value="${esc(profile.display_name)}" required></label><label>Neighborhood<input name="neighborhood" value="${esc(profile.neighborhood)}" required></label><div class="form-grid"><label>City<input name="city" value="${esc(profile.city)}" required></label><label>State<input name="state" value="${esc(profile.state)}" required></label></div><label>Bio<textarea name="bio" maxlength="500">${esc(profile.bio||'')}</textarea></label><button class="primary">Save profile</button></form><section class="form-card"><h2>Security</h2><p>Your account uses Supabase Auth with verified email and optional authenticator-app MFA.</p><div id="mfa-box"><button id="manage-mfa">Manage two-factor authentication</button><button id="change-password">Change password</button></div><h3>Owner payouts</h3><div id="payout-box">${profile.stripe_onboarding_complete?'<span class="status">Payouts enabled</span><button id="stripe-dashboard">Open Stripe Express</button>':'<p class="muted">Connect Stripe before listing tools or receiving rental proceeds.</p><button class="primary" id="start-payouts">Set up payouts</button>'}</div><h3>Signed in as</h3><p class="muted">${esc(user.email||'')}</p></section></div>`;
+  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Account & reputation</div><h1>${esc(profile.display_name)}</h1><p>${esc(profile.neighborhood)}, ${esc(profile.city)}, ${esc(profile.state)}</p></div><button id="signout">Sign out</button></section><div class="stats"><div class="stat"><span>Tool Share Credits</span><strong>${money(credits)}</strong></div><div class="stat"><span>Completed rentals</span><strong>${rentals.filter(r=>r.renter_id===user.id&&r.status==='complete').length}</strong></div><div class="stat"><span>Tools listed</span><strong>${tools.filter(t=>t.owner_id===user.id).length}</strong></div></div><div class="two-col"><form id="edit-profile" class="form-card"><h2>Profile</h2><label>Display name<input name="display_name" value="${esc(profile.display_name)}" required></label><label>Neighborhood<input name="neighborhood" value="${esc(profile.neighborhood)}" required></label><div class="form-grid"><label>City<input name="city" value="${esc(profile.city)}" required></label><label>State<input name="state" value="${esc(profile.state)}" required></label></div><label>Bio<textarea name="bio" maxlength="500">${esc(profile.bio||'')}</textarea></label><button class="primary">Save profile</button></form><section class="form-card"><h2>Security</h2><p>Your account uses verified email plus required authenticator-app two-factor authentication.</p><div id="mfa-box"><button id="manage-mfa">Manage two-factor authentication</button><button id="change-password">Change password</button></div><h3>Owner payouts</h3><div id="payout-box">${profile.stripe_onboarding_complete?'<span class="status">Payouts enabled</span><button id="stripe-dashboard">Open Stripe Express</button>':'<p class="muted">Connect Stripe before listing tools or receiving rental proceeds.</p><button class="primary" id="start-payouts">Set up payouts</button>'}</div><h3>Signed in as</h3><p class="muted">${esc(user.email||'')}</p></section></div>`;
   $('#signout').onclick=()=>supabase.auth.signOut();
   $('#edit-profile').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);const values=Object.fromEntries(new FormData(e.target));const {error}=await supabase.from('profiles').update(values).eq('id',user.id);setBusy(b,false);if(error)toast(error.message);else{toast('Profile updated.');await refresh()}};
   $('#manage-mfa').onclick=manageMfa;if($('#start-payouts'))$('#start-payouts').onclick=startStripeOnboarding;if($('#stripe-dashboard'))$('#stripe-dashboard').onclick=openStripeDashboard;$('#change-password').onclick=async()=>{const password=prompt('Enter a new password (12+ characters)');if(!password)return;if(password.length<12){toast('Use at least 12 characters.');return}const {error}=await supabase.auth.updateUser({password});toast(error?error.message:'Password updated.');};
@@ -170,6 +189,13 @@ async function returnDialog(id){
   showModal(`<div class="dialog-head"><h2>Return tool</h2><button data-close>✕</button></div><form id="return-form" class="stack"><label>Return photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label><label>Condition note<textarea name="note" maxlength="500" placeholder="Returned clean; normal wear only."></textarea></label><label>Handoff method<select name="handoff"><option value="scan">In-person handoff</option><option value="dropoff">Agreed drop-off</option></select></label><button class="primary">Submit return</button></form>`);$('#return-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),file=f.get('photo');const ext=(file.name.split('.').pop()||'jpg').toLowerCase(),path=`${user.id}/${id}/${crypto.randomUUID()}.${ext}`;const up=await supabase.storage.from('return-photos').upload(path,file,{upsert:false});if(up.error)throw up.error;await rentalAction(id,'return',{returnPhotoPath:path,handoffMethod:f.get('handoff'),assessment:{note:f.get('note')}});closeModal()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}}
 }
 async function reviewDialog(id){showModal(`<div class="dialog-head"><h2>Leave a review</h2><button data-close>✕</button></div><form id="review-form" class="stack"><label>Rating<select name="rating">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join('')}</select></label><label>Review<textarea name="body" maxlength="1000"></textarea></label><button class="primary">Publish review</button></form>`);$('#review-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const {error}=await supabase.from('reviews').insert({rental_id:id,author_id:user.id,rating:Number(f.get('rating')),body:f.get('body')});if(error)toast(error.message);else{closeModal();toast('Review published.');await refresh()}}}
+async function cancelPendingRental(id){
+  try{
+    const {data,error}=await supabase.functions.invoke('rental-action',{body:{rentalId:id,action:'cancel'}});
+    if(error)throw error;if(data?.error)throw new Error(data.error);
+    toast('Checkout cancelled. The tool is available again.');await refresh();
+  }catch(err){if(!/Cancellation is not available/.test(errorText(err)))toast(errorText(err))}
+}
 async function rentalAction(id,action,payload){try{const {data,error}=await supabase.functions.invoke('rental-action',{body:{rentalId:id,action,...payload}});if(error)throw error;if(data?.error)throw new Error(data.error);toast(action==='approve'?'Deposit credits returned.':'Rental updated.');await refresh()}catch(err){toast(errorText(err))}}
 
 async function renderMfaChallenge(){
@@ -188,9 +214,40 @@ async function openStripeDashboard(){
   try{const {data,error}=await supabase.functions.invoke('connect-account',{body:{action:'dashboard'}});if(error)throw error;if(data?.url)location.assign(data.url);else throw new Error(data?.error||'Stripe dashboard link unavailable.')}catch(err){toast(errorText(err))}
 }
 
+async function beginMfaEnrollment({required=false}={}){
+  try{
+    const enroll=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:required?'Neighborhood Garage':'Backup authenticator'});
+    if(enroll.error)throw enroll.error;
+    const body=`<p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary">Enable 2FA</button></form>`;
+    if(required){
+      const box=$('#required-mfa-box');if(!box)return;box.innerHTML=body;
+    }else{
+      showModal(`<div class="dialog-head"><h2>Add authenticator</h2><button data-close>✕</button></div>${body}`);
+    }
+    $('#enable-mfa').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const challenge=await supabase.auth.mfa.challenge({factorId:enroll.data.id});if(challenge.error)throw challenge.error;const verify=await supabase.auth.mfa.verify({factorId:enroll.data.id,challengeId:challenge.data.id,code:new FormData(e.target).get('code')});if(verify.error)throw verify.error;closeModal();toast('Two-factor authentication enabled.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+  }catch(err){toast(errorText(err))}
+}
+
+function renderRequiredMfaEnrollment(){
+  app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Secure your account</div><h1>Add two-factor authentication.</h1><p class="muted">Neighborhood Garage requires an authenticator app before profile setup, listings, messages, or rentals can be accessed.</p><div id="required-mfa-box"><button class="primary" id="start-required-mfa">Set up authenticator</button></div><button id="mfa-enroll-signout" class="linkish">Sign out</button></section></main>`;
+  $('#start-required-mfa').onclick=()=>beginMfaEnrollment({required:true});
+  $('#mfa-enroll-signout').onclick=()=>supabase.auth.signOut();
+}
+
+function renderPasswordRecovery(){
+  app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Account recovery</div><h1>Choose a new password.</h1><p class="muted">Use at least 12 characters and store it in a password manager.</p><form id="recovery-form" class="stack"><label>New password<input type="password" name="password" minlength="12" autocomplete="new-password" required></label><label>Confirm password<input type="password" name="confirm" minlength="12" autocomplete="new-password" required></label><button class="primary">Update password</button></form><button id="recovery-signout" class="linkish">Cancel and sign out</button></section></main>`;
+  $('#recovery-signout').onclick=()=>supabase.auth.signOut();
+  $('#recovery-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),password=String(f.get('password')||''),confirm=String(f.get('confirm')||'');if(password!==confirm)throw new Error('Passwords do not match.');const {error}=await supabase.auth.updateUser({password});if(error)throw error;passwordRecovery=false;toast('Password updated.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+}
+
 async function manageMfa(){
-  try{const factors=await supabase.auth.mfa.listFactors();if(factors.error)throw factors.error;const verified=factors.data.totp.filter(x=>x.status==='verified');if(verified.length){showModal(`<div class="dialog-head"><h2>Two-factor authentication</h2><button data-close>✕</button></div><p>Authenticator-app MFA is enabled.</p>${verified.map(f=>`<div class="row panel-lite"><span>${esc(f.friendly_name||'Authenticator')}</span><button data-unenroll="${f.id}">Remove</button></div>`).join('')}<p class="fine">For resilience, consider enrolling a second authenticator on another device before removing your only factor.</p>`);document.querySelectorAll('[data-unenroll]').forEach(b=>b.onclick=async()=>{const {error}=await supabase.auth.mfa.unenroll({factorId:b.dataset.unenroll});if(error)toast(error.message);else{closeModal();toast('Two-factor factor removed.')}});return}
-    const enroll=await supabase.auth.mfa.enroll({factorType:'totp',friendlyName:'Neighborhood Garage'});if(enroll.error)throw enroll.error;showModal(`<div class="dialog-head"><h2>Enable two-factor authentication</h2><button data-close>✕</button></div><p>Scan this code with your authenticator app.</p><img class="qr" src="${esc(enroll.data.totp.qr_code)}" alt="Authenticator QR code"><p class="fine">Manual secret: <code>${esc(enroll.data.totp.secret)}</code></p><form id="enable-mfa" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary">Enable 2FA</button></form>`);$('#enable-mfa').onsubmit=async e=>{e.preventDefault();const challenge=await supabase.auth.mfa.challenge({factorId:enroll.data.id});if(challenge.error){toast(challenge.error.message);return}const verify=await supabase.auth.mfa.verify({factorId:enroll.data.id,challengeId:challenge.data.id,code:new FormData(e.target).get('code')});if(verify.error)toast(verify.error.message);else{closeModal();toast('Two-factor authentication enabled.');await refresh()}};
+  try{
+    const factors=await supabase.auth.mfa.listFactors();if(factors.error)throw factors.error;
+    const verified=(factors.data?.totp||[]).filter(x=>x.status==='verified');
+    if(!verified.length){await beginMfaEnrollment();return}
+    showModal(`<div class="dialog-head"><h2>Two-factor authentication</h2><button data-close>✕</button></div><p>At least one authenticator is required for this account.</p>${verified.map(f=>`<div class="row panel-lite"><span>${esc(f.friendly_name||'Authenticator')}</span>${verified.length>1?`<button data-unenroll="${f.id}">Remove</button>`:''}</div>`).join('')}<button class="primary" id="add-mfa-factor">Add backup authenticator</button><p class="fine">Add a backup authenticator before replacing your only factor.</p>`);
+    $('#add-mfa-factor').onclick=()=>{closeModal();beginMfaEnrollment()};
+    document.querySelectorAll('[data-unenroll]').forEach(b=>b.onclick=async()=>{const {error}=await supabase.auth.mfa.unenroll({factorId:b.dataset.unenroll});if(error)toast(error.message);else{closeModal();toast('Authenticator removed.');await refresh()}});
   }catch(err){toast(errorText(err))}
 }
 

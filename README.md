@@ -5,7 +5,7 @@ Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app b
 ## Live architecture
 
 - **Frontend:** static mobile-first ES modules, deployable to GitHub Pages.
-- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and optional TOTP MFA. When a user enrolls MFA, RLS requires an `aal2` session for application tables.
+- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and required TOTP MFA. New users must complete authenticator setup before profile creation or marketplace access, and RLS/Storage/Edge Functions require an `aal2` session.
 - **Database:** Supabase Postgres with RLS on every exposed application table.
 - **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
 - **Realtime:** Supabase Realtime for message inserts.
@@ -46,6 +46,7 @@ No payment secrets are committed to this repository.
 ```sh
 npm run dev
 # http://localhost:5173
+# Edge Functions also allow http://localhost:3000 for the current preview workflow
 npm test
 npm run build
 ```
@@ -68,7 +69,7 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 ## Production checklist
 
 1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; switch and validate the integration in Stripe live mode before accepting real customer payments.
-2. Configure Auth redirect URLs for the GitHub Pages production URL and local development URL.
+2. Configure Auth redirect URLs for the GitHub Pages production URL plus the local preview URLs you use (`http://localhost:5173` and/or `http://localhost:3000`).
 3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
 4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
 5. Add legal terms, privacy policy, cancellation/refund rules, support/dispute administration, and any real insurance terms before representing coverage to users.
