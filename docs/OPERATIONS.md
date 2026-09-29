@@ -48,3 +48,9 @@ The Pages workflow targets the working branch, not main. The repository also has
 2. Register the Stripe sandbox webhook against `https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook`, select the events listed above, and set its signing secret as `STRIPE_WEBHOOK_SECRET` in the same Supabase project.
 3. In Supabase Dashboard Authentication settings, enable leaked password protection if available. Re-run Security Advisor. An Auth config warning cannot be cleared by a SQL migration.
 4. Verify Connect onboarding, a sandbox checkout and webhook, then owner payout before opening reservations to users. The current Edge function returns a specific `stripe_not_configured` error until setup succeeds.
+
+### Stripe Sync and app fulfillment (2026-09-29)
+
+The sandbox key is accepted for account `acct_1UKqGKRsHH5z9atP`, and Connect has been enabled on that sandbox. Supabase Stripe Sync installs its own `stripe-webhook` function. Our combined handler preserves Sync signature verification and database synchronization, then invokes the application's idempotent `finish_payment` transaction for rental Checkout events. Reinstalling Stripe Sync may overwrite this handler; redeploy the repository's combined `stripe-webhook` after an integration reinstall.
+
+When Stripe Sync is installed, its managed signing secret is kept in its backend metadata, and the combined handler uses Sync's signature verification. Do not copy that secret into the frontend. The standalone fallback uses `STRIPE_WEBHOOK_SECRET` when no Sync database connection is provided.

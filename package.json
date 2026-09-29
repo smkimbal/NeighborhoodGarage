@@ -20,6 +20,7 @@
     "qrcode": "1.5.4"
   },
   "devDependencies": {
+    "@stripe/sync-engine": "1.0.32",
     "deno": "2.6.8",
     "esbuild": "0.25.12",
     "playwright": "1.63.0",
