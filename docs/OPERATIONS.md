@@ -41,3 +41,10 @@ MFA stays optional in the sandbox but is enforced by RLS and Edge Functions for 
 Run `npm ci`, `npm test`, `npm run check:edge`, `npm run dev`. Local static preview: `http://localhost:5173`. `npm run build` bundles pinned dependencies into `dist` and refreshes committed `assets/` for branch-root Pages publishing; there is no browser CDN dependency for the Supabase client. Map tiles require access to OpenStreetMap. Respect its tile usage policy and move to a suitable tile provider as traffic grows.
 
 The Pages workflow targets the working branch, not main. The repository also has native branch publishing enabled; committed bundles make both paths serve the same application. Commit refreshed `assets/` alongside source changes after running the build. Switching Settings → Pages → Source to GitHub Actions is optional once branch publishing is no longer needed. GitHub's `github-pages` environment must permit deployments from that branch. Assets are relative so `/NeighborhoodGarage/` works.
+
+### Complete the remaining project settings
+
+1. In Stripe Dashboard, select the intended sandbox and obtain its secret or appropriately restricted server key. In the Supabase project's Edge Function secrets, set `STRIPE_SECRET_KEY` to that sandbox key and `STRIPE_MODE` to `sandbox`. Do not put the key in `config.js`, GitHub Actions, or chat.
+2. Register the Stripe sandbox webhook against `https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook`, select the events listed above, and set its signing secret as `STRIPE_WEBHOOK_SECRET` in the same Supabase project.
+3. In Supabase Dashboard Authentication settings, enable leaked password protection if available. Re-run Security Advisor. An Auth config warning cannot be cleared by a SQL migration.
+4. Verify Connect onboarding, a sandbox checkout and webhook, then owner payout before opening reservations to users. The current Edge function returns a specific `stripe_not_configured` error until setup succeeds.
