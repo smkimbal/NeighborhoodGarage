@@ -7,3 +7,5 @@ Restored: mobile navigation, nearby list/map and radius filtering, approximate t
 Backend changes: repaired optional-MFA enforcement (remote policies had drifted to `true`), removed payout-account access from listing RLS, validated evidence ownership, protected active tools, transactional credit reservation/refunds, signed and retryable webhook handling, Accounts v2 Connect onboarding, sandbox key validation, actionable Edge Function errors, separate retryable owner payouts.
 
 This commit is the requested **pre-journey checkpoint**. Build and type checks are separate from the full user simulation, which starts after this commit. Final results and remaining provider configuration appear in `docs/VALIDATION.md`.
+
+GitHub checkpoint: `b6a77578b3fed103ef2cc382126524cbdb54f4ac` (same tree as local `a935819`). Subsequent commits contain the journey findings and disabled AI deployment guardrails.

@@ -1,5 +1,4 @@
 import {authenticate,checked,endpoint,HttpError,stripeClient} from '../_shared/runtime.ts';
-import {assessReturn} from '../_shared/vision.ts';
 Deno.serve(endpoint(async req=>{
  const {user,admin}=await authenticate(req);
  const body=await req.json(),{rentalId,action}=body;
@@ -11,10 +10,8 @@ Deno.serve(endpoint(async req=>{
   const path=String(body.returnPhotoPath||'');
   if(!path.startsWith(`${user.id}/${r.id}/`))throw new HttpError('Invalid return photo.');
   checked(await admin.storage.from('return-photos').download(path));
-  let assessment:Record<string,unknown>={source:'manual',note:'AI is unavailable. The owner must compare the original and return photographs.'};
-  if(Deno.env.get('OPENAI_API_KEY')){
-   try{checked(await admin.rpc('take_ai_slot',{p_user:user.id}));assessment=await assessReturn(admin,r,path);}catch{assessment.note='AI could not assess this return. Owner review is required.';}
-  }
+  const assessment:Record<string,unknown>={source:'manual',note:'AI is unavailable. The owner must compare the original and return photographs.'};
+  // External AI photo analysis remains disabled pending explicit project-owner approval.
   data={photo:path,handoff:body.handoffMethod,code:body.code,assessment:{...assessment,renterNote:String(body.note||'').slice(0,500)}};
  }
  if(action==='cancel'){

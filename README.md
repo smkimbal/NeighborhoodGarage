@@ -2,13 +2,15 @@
 
 Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.
 
+See [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe still needs its server secret; external AI photo processing awaits explicit project-owner approval.
+
 ## Live architecture
 
-- **Frontend:** static mobile-first ES modules, deployable to GitHub Pages.
+- **Frontend:** bundled, static mobile-first ES modules, deployable to GitHub Pages.
 - **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and optional TOTP MFA. During sandbox testing, users without a verified factor can continue at `aal1`; once a user enables a verified authenticator factor, RLS and Storage require an `aal2` session for that account.
 - **Database:** Supabase Postgres with RLS on every exposed application table.
 - **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
-- **Realtime:** Supabase Realtime for message inserts.
+- **Realtime:** Supabase Realtime for private messages and participant-scoped rental updates, including owner return-review prompts.
 - **Payments:** Stripe Checkout created by the `create-checkout` Edge Function; Stripe webhooks finalize paid rentals.
 - **Marketplace payouts:** Stripe Connect onboarding is handled by `connect-account`. Owner proceeds are held on the platform and transferred only after the owner approves the returned tool.
 - **Privileged rental transitions:** `rental-action` validates renter/owner identity before pickup, return, approval, dispute, owner payout, and deposit-credit issuance.
@@ -36,6 +38,7 @@ Configure a Stripe webhook endpoint for:
 Subscribe at minimum to:
 
 - `checkout.session.completed`
+- `checkout.session.async_payment_succeeded`
 - `checkout.session.expired`
 - `checkout.session.async_payment_failed`
 
@@ -44,10 +47,12 @@ No payment secrets are committed to this repository.
 ## Run locally
 
 ```sh
+npm ci
 npm run dev
 # http://localhost:5173
 # Edge Functions also allow http://localhost:3000 for the current preview workflow
 npm test
+npm run check:edge
 npm run build
 ```
 
@@ -64,11 +69,11 @@ All application tables have RLS enabled. Direct browser writes are intentionally
 - payment events have no client-access policy;
 - rental creation and status/credit mutations happen in authenticated Edge Functions using server-side credentials.
 
-Storage upload paths begin with the authenticated user's UUID. Return-image reads are limited to participants in the rental referencing that object.
+Storage upload paths begin with the authenticated user's UUID. Return-image reads are limited to the uploader or participants in the rental referencing that object. Referenced evidence cannot be deleted by the uploader.
 
 ## Production checklist
 
-1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; switch and validate the integration in Stripe live mode before accepting real customer payments.
+1. Set the two Stripe Edge Function secrets above. The currently connected Stripe account is a **sandbox**; use a separate production database/project and live keys before accepting real customer payments. Set `STRIPE_MODE=live` only in that production environment; sandbox account and payment IDs cannot be reused.
 2. Set Supabase Auth **Site URL** to `https://smkimbal.github.io/NeighborhoodGarage/` and add that same URL to **Redirect URLs**. Local preview URLs (`http://localhost:5173` and/or `http://localhost:3000`) may remain allowlisted for development, but signup confirmation and password recovery intentionally use the canonical public callback.
 3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
 4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
@@ -77,4 +82,4 @@ Storage upload paths begin with the authenticated user's UUID. Return-image read
 
 ## Schema
 
-The checked-in migration under `supabase/migrations/` mirrors the live project schema and policies used by this branch.
+The checked-in migrations under `supabase/migrations/` mirrors the live project schema and policies used by this branch.

@@ -7,7 +7,7 @@ The static GitHub Pages frontend uses only the Supabase public URL/key in `confi
 - `STRIPE_SECRET_KEY`: sandbox `rk_test_…` with the required Connect, Checkout, PaymentIntent, and Transfer permissions (or a sandbox secret key during initial setup).
 - `STRIPE_MODE`: `sandbox` by default. Live keys are rejected until explicitly set to `live`.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for this project's endpoint, matching the sandbox.
-- `OPENAI_API_KEY`: enables identification, return comparisons, and optional photo cleanup. Without it, manual listing and owner review remain functional; AI controls explain what is missing.
+- `OPENAI_API_KEY`: required by the pending AI implementation. External photo processing is currently disabled pending owner approval. The disabled deployed endpoints send no photos to OpenAI. Ready-to-review identification and cleanup handlers are in `supabase/pending-ai`; return comparison is in `_shared/vision.ts`. Once approved, copy the pending handlers to their function index files, adjust imports from `../functions/_shared/` to `../_shared/`, and deploy. Re-enable return comparison only with renter consent. Without it, manual listing and owner review remain functional; AI controls explain what is missing.
 - Optional `OPENAI_VISION_MODEL` (default `gpt-4.1-mini`) and `OPENAI_IMAGE_MODEL` (default `gpt-image-1`).
 - Supabase supplies its URL and credentials; both legacy `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` and newer `SUPABASE_PUBLISHABLE_KEYS` / `SUPABASE_SECRET_KEYS` JSON maps are supported.
 

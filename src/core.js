@@ -4,7 +4,8 @@ export function quote(rateCents, depositCents, days, creditBalanceCents=0){
   const rental = Math.max(0, Math.round(rateCents))*Math.max(1, Math.round(days));
   const fee = Math.round(rental*FEE_RATE);
   const total = rental + Math.max(0, Math.round(depositCents));
-  const creditsUsed = Math.max(0, Math.min(Math.round(creditBalanceCents||0), total));
+  let creditsUsed = Math.max(0, Math.min(Math.round(creditBalanceCents||0), total));
+  if(total-creditsUsed>0 && total-creditsUsed<50) creditsUsed=Math.max(0,total-50);
   return {rental, fee, owner:rental-fee, deposit:Math.max(0,Math.round(depositCents)), total, creditsUsed, due:total-creditsUsed};
 }
 export function distanceMiles(a,b){
