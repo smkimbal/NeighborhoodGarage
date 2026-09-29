@@ -1,63 +1,78 @@
 # Neighborhood Garage
 
-Neighborhood Garage is a mobile-first peer-to-peer tool-sharing prototype. This revision keeps the original Demo Mode and adds a runnable local backend for real account onboarding, persistent user data, two-factor authentication, server-authoritative rentals/credits, encrypted private fields/messages, and provider adapters for email/SMS verification, AI photo analysis, and Stripe.
+Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.
 
-## What works now
+## Live architecture
 
-- Demo Mode still runs entirely in the browser for quick UI exploration.
-- Live Mode uses the local API at `http://localhost:8787` when the site is opened from localhost.
-- Signup supports email or phone verification.
-- Verification must complete before TOTP two-factor setup.
-- TOTP must be enabled before profile creation and marketplace actions.
-- Sessions use HttpOnly cookies; session tokens are stored only as hashes server-side.
-- Passwords use Node's scrypt implementation with per-user salts.
-- Private profile fields, TOTP secrets, return photos, and message bodies use AES-256-GCM encryption at rest in the local SQLite prototype.
-- Listings, rentals, checkout math, credits, return approval, reviews, and messaging are enforced by the server rather than trusted from browser state.
-- Email verification can use Resend; SMS can use Twilio. With no provider keys in local development, the code is printed to the API console and returned to the local UI.
-- AI photo analysis can use the OpenAI Responses API when `OPENAI_API_KEY` is configured. Without a key, local development returns an explicit development-only result.
-- Stripe has a server-side PaymentIntent adapter. Without a Stripe key, local development uses a clearly marked simulated payment. A proper hosted/client payment-method flow is still required before production use.
-- PostgreSQL/Supabase-oriented schema scaffold remains in `backend/schema.sql`; the runnable local prototype uses `backend/schema.sqlite.sql`.
+- **Frontend:** static mobile-first ES modules, deployable to GitHub Pages.
+- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and optional TOTP MFA. When a user enrolls MFA, RLS requires an `aal2` session for application tables.
+- **Database:** Supabase Postgres with RLS on every exposed application table.
+- **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
+- **Realtime:** Supabase Realtime for message inserts.
+- **Payments:** Stripe Checkout created by the `create-checkout` Edge Function; Stripe webhooks finalize paid rentals.
+- **Privileged rental transitions:** `rental-action` Edge Function validates renter/owner identity before pickup, return, approval, dispute, and deposit-credit issuance.
+- **Credits:** append-only `credit_ledger`; approved deposits become Tool Share Credits.
+
+There is no Demo Mode, fake checkout, seeded marketplace inventory, localStorage wallet, or simulated account system.
+
+## Supabase project
+
+Project ref: `ilfpugydxlzmmxjfrmrv`
+
+The browser uses only the project URL and publishable key in `config.js`. Those values are intentionally public. Never place Supabase secret keys, Stripe secret keys, or webhook secrets in `config.js` or any GitHub Pages asset.
+
+## Required Stripe configuration
+
+The deployed payment functions fail closed until real Stripe credentials are configured in Supabase Edge Function secrets:
+
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+
+Configure a Stripe webhook endpoint for:
+
+`https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook`
+
+Subscribe at minimum to:
+
+- `checkout.session.completed`
+- `checkout.session.expired`
+- `checkout.session.async_payment_failed`
+
+No payment secrets are committed to this repository.
 
 ## Run locally
 
-Requires Node 22.5+ and Python 3.
-
 ```sh
 npm run dev
-# Web: http://localhost:5173
-# API: http://localhost:8787
-```
-
-The first Live Mode account can use the verification code shown in the local API terminal. Use any TOTP-compatible authenticator for the 2FA step.
-
-To configure real providers, copy `.env.example` to your preferred local environment loader or export the variables before starting. This project intentionally has no runtime npm dependencies.
-
-## Verify
-
-```sh
+# http://localhost:5173
 npm test
 npm run build
 ```
 
-`npm test` covers the original demo lifecycle plus a live API path for signup → verification → TOTP → profile → listing → rental → pickup → return → owner approval → credit refund → review → encrypted chat.
+## Security model
 
-`tests/browser-smoke.cjs` is retained for browser-level verification and requires Playwright/Chromium to be installed separately:
+All application tables have RLS enabled. Direct browser writes are intentionally limited:
 
-```sh
-npm run dev
-npm run test:browser
-```
+- users can update only their profile;
+- owners can manage only their tools;
+- rental participants can read only rentals they participate in;
+- users can read only their credit ledger;
+- message participants can read their conversations and users can only send as themselves;
+- only the renter of a completed rental can create its review;
+- payment events have no client-access policy;
+- rental creation and status/credit mutations happen in authenticated Edge Functions using server-side credentials.
 
-## Deployment split
+Storage upload paths begin with the authenticated user's UUID. Return-image reads are limited to participants in the rental referencing that object.
 
-GitHub Pages can host only the static `dist/` frontend. The backend must run on a server/runtime that can keep secrets and persistent storage. For early hosted prototyping, Supabase remains the recommended next step because it provides Postgres, Auth, Storage, Realtime, and a Free plan; the production migration should explicitly configure grants/RLS and private Storage rather than exposing tables or service-role keys to the browser.
+## Production checklist
 
-Before a public launch, add a real payment collection UI/hosted checkout, payment webhooks and reconciliation, private object storage with signed URLs, provider-managed email/SMS limits, production KMS/secret management, support/dispute administration, legal/insurance terms, monitoring/backups, abuse controls, and a security review.
+1. Connect/configure Stripe and set the two Edge Function secrets above.
+2. Configure Auth redirect URLs for the GitHub Pages production URL and local development URL.
+3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
+4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
+5. Add legal terms, privacy policy, cancellation/refund rules, support/dispute administration, and any real insurance terms before representing coverage to users.
+6. For a true marketplace payout model, add Stripe Connect onboarding and owner payouts. Current checkout collects payment to the platform account; owner payout accounting is not yet automated.
 
-## Important security notes
+## Schema
 
-- Never place API, database service-role, Stripe secret, OpenAI, Twilio, or Resend keys in `config.js` or any file served by GitHub Pages.
-- `NG_MASTER_KEY` is required in production. Without it, local development intentionally falls back to a known development-only key.
-- The local SQLite backend is for prototyping. It is not a replacement for managed backups, high availability, production audit logging, or a reviewed authorization model.
-- The browser compresses/re-encodes uploaded images before sending them, which strips normal EXIF metadata, but production object ingestion should still validate decoded file types and strip metadata server-side.
-- Deposits are not automatically refunded as cash in this design; owner-approved deposits are credited to the user's internal Tool Share Credits ledger. Disputes keep the deposit held for support review.
+The checked-in migration under `supabase/migrations/` mirrors the live project schema and policies used by this branch.
