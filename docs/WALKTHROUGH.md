@@ -52,3 +52,14 @@ node tests/walkthrough.browser.mjs
 ```
 
 Run the SQL checks only against the intended sandbox. Both are rollback-only fixtures. GitHub Pages remains active; no Cloudflare migration was performed.
+
+## Account deletion, map and payment follow-up — September 29 (US Central)
+
+- Auth redirect now returns to GitHub after the owner's Supabase settings change.
+- Profile offers permanent deletion with password reconfirmation and typed DELETE. Active rentals, disputes and pending payouts block deletion. Confirmation explains that unused credits are lost; settled payment records and Stripe records remain.
+- The service-only deletion RPC locks the account before Storage API cleanup and Auth admin deletion. Settled receipts retain amounts/provider references with deleted profile/tool links set to null. Interrupted cleanup can be retried from Finish account deletion on the account-load error screen. No existing user's account was deleted during this task.
+- Smaller blue GPS dot with white border/shadow; category tool icons with title, daily price, description, owner, distance and details-link popups.
+- Chromium walkthrough and account-deletion rollback SQL passed. The deployed deletion endpoint rejects anonymous calls with 401. Credit/payment and private-chat SQL regressions passed.
+- Actual Stripe sandbox Checkout: `cs_test_a1aAi3ZBNqWJotUAHK1TVhg2ZqFlO4vhQfIFBUHpQkqVLLlO1Hj4YufETA`, $1 USD, complete/paid, livemode false. Standard test card only; no real charge. Returned to the GitHub success URL.
+- PaymentIntent `pi_3ULAu4RsHH5z9atP0ggCCKPM` is succeeded in Supabase Stripe Sync. This isolated test has no rental metadata and does not change a user's rental or credit balance. Owner transfer/bank payout is still a separate acceptance scenario.
+- No new deletion-related Security Advisor findings. Previously recorded Stripe Sync search-path, reputation and leaked-password warnings remain.
