@@ -11,7 +11,7 @@ Deno.serve(endpoint(async req=>{
  if(r.stripe_checkout_session_id){const existing=await stripe.checkout.sessions.retrieve(r.stripe_checkout_session_id);if(existing.status==='open')return {checkoutUrl:existing.url,rental:r};throw new HttpError('Payment is processing or checkout has ended. Check My rentals.');}
  const session=await stripe.checkout.sessions.create({
   mode:'payment',success_url:success,cancel_url:cancel+(cancel.includes('?')?'&':'?')+'payment=cancel&rental='+r.id,
-  client_reference_id:r.id,metadata:{rental_id:r.id,user_id:user.id},
+  client_reference_id:r.id,metadata:{rental_id:r.id,user_id:user.id,project_ref:new URL(Deno.env.get('SUPABASE_URL')!).hostname.split('.')[0]},
   line_items:[{price_data:{currency:'usd',unit_amount:r.amount_due_cents,product_data:{name:'Neighborhood Garage tool rental and refundable deposit'}},quantity:1}],
   payment_intent_data:{metadata:{rental_id:r.id},transfer_group:'RENTAL_'+r.id},
   expires_at:Math.floor(new Date(r.created_at).getTime()/1000)+1860,

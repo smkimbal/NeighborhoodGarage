@@ -2,7 +2,9 @@ import { createClient } from 'npm:@supabase/supabase-js@2.95.0';
 import Stripe from 'npm:stripe@22.6.0';
 import {allowedOrigins} from './origins.ts';
 export class HttpError extends Error { constructor(message:string,public status=400,public code='request_failed'){super(message);} }
-const origins=allowedOrigins(Deno.env.get('NG_DEPLOY_TARGET'));
+const projectUrl=Deno.env.get('SUPABASE_URL');
+const productionProject=projectUrl==='https://zbbespojxxoheavodtqs.supabase.co';
+const origins=allowedOrigins(productionProject?'production':Deno.env.get('NG_DEPLOY_TARGET'));
 export function envKey(jsonName:string,legacy:string){
  const direct=Deno.env.get(legacy); if(direct)return direct;
  try {const keys=JSON.parse(Deno.env.get(jsonName)||'{}');const value=keys.default||Object.values(keys)[0];if(typeof value==='string')return value;}catch{/* actionable failure below */}

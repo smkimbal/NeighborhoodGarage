@@ -11,13 +11,23 @@ Created in the existing **Neighborhood Garage** Free organization with a quoted 
 
 ## Not ready for public launch
 
-Only the first five existing migrations have been applied. Automatic approval review rejected `make_mfa_optional_for_sandbox` and `restore_community_secure_checkout`: they change production security to optional MFA and allow listing before payout setup. No workaround was applied. Production retains the previously installed mandatory MFA policies. Remaining migrations, including the new wallet migration, are **not deployed or database-tested** yet. The existing frontend's optional MFA flow is not compatible with the currently partial schema/policies.
+All 14 migrations are installed, including the internal wallet migration. The user explicitly approved optional MFA (required once enrolled) and listing before Stripe payout setup. These approvals resolved the earlier automatic-review block.
 
-User decision is required before continuing those migrations: authorize the existing optional-MFA policy (MFA enforced once enrolled) and listings before Stripe setup, or retain mandatory production MFA and implement mandatory enrollment plus compatible migrations instead.
+All nine Edge Functions are deployed. Endpoints validate user tokens in their handlers; the webhook validates Stripe signatures. The production project automatically selects the exact neighborhoodgarage.net CORS allowlist. Sandbox origins are not added to it.
 
-No production Edge Functions or Stripe configuration have been deployed in this checkpoint. The connector does not expose an Auth configuration or secrets setter. Production Auth Site URL/redirect allowlist still need `https://neighborhoodgarage.net/`, and Stripe test credentials/webhook configuration remain pending. Do not use the default localhost email callback. Use test keys only; do not copy or expose service-role/Stripe secrets into the frontend.
+## Remaining provider settings
 
-`config.js` and the Cloudflare build now identify the new production project. `build:cloudflare` intentionally refuses to publish until `NG_PRODUCTION_BACKEND_READY=true` is explicitly set **after** the above work and acceptance tests pass. Do not set it just to silence a failed build. The production build was verified locally; that is not a live backend acceptance test.
+The Supabase connector does not expose an Auth configuration or secrets setter. Complete these in the **new production project**, not the original sandbox:
+
+1. Auth → URL Configuration: set Site URL and allowed redirect URL to `https://neighborhoodgarage.net/`. Configure/verify email delivery. Do not retain localhost as the default callback.
+2. Edge Functions → Secrets: set `STRIPE_MODE=sandbox` and a Stripe **test** API key as `STRIPE_SECRET_KEY` (test restricted key with required Checkout, Accounts v2, Connect/transfer permissions, or the existing sandbox key). Never put it in GitHub or frontend config.
+3. In that Stripe sandbox, add a webhook destination `https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`. Store its signing secret as `STRIPE_WEBHOOK_SECRET` in this Supabase project.
+4. Leave Stripe Sync disabled here unless it is separately installed and configured. The production handler uses the explicit webhook signing secret; the original sandbox's managed Stripe Sync behavior is preserved.
+5. Run real-domain signup/verification/reset and the full sandbox Connect → payment → return → owner credit → withdrawal journey. Then set Cloudflare `NG_PRODUCTION_BACKEND_READY=true` to allow its build. Do not set readiness merely to silence a build failure.
+
+No live Stripe key, real-money charge or bank withdrawal has been enabled. No Stripe sandbox credentials were copied from another project. Public Supabase configuration is already in the production branch.
+
+Migration history was installed through the connector, which assigns remote timestamps. Before using CLI `db push` against this project, reconcile history by migration name/content; do not blindly reapply the initial schema under its older local filename timestamps.
 
 ## Wallet changes prepared in this branch
 
@@ -32,4 +42,9 @@ No production Edge Functions or Stripe configuration have been deployed in this 
 
 ## Validation
 
-Node tests cover no-Stripe credit checkout, no automatic owner transfer, duplicate withdrawal retry, and expired-idempotency protection. Edge Functions pass Deno type checking. SQL contract tests have been updated for internal owner earnings but **cannot be run on this incomplete production schema yet**. New wallet functionality remains undeployed. Provider end-to-end tests, database concurrency/RLS tests and the browser withdrawal journey remain required before setting backend readiness.
+- 17 Node tests pass, including no-Stripe credit checkout, no automatic owner transfer, duplicate withdrawal retry, and expired-idempotency protection.
+- All Edge Functions pass Deno type checks.
+- Database contract, wallet contract, community-access and account-deletion SQL suites passed on the new project. Fixtures rolled back; verified zero users, ledger entries and withdrawals remain.
+- Wallet database assertions cover owner credit exactly once, full-credit checkout without owner Stripe setup, withdrawal replay, overdraft rejection, pending-withdrawal deletion blocking, service-only mutation RPC and per-user read isolation.
+- No actual Stripe transaction or browser withdrawal journey has run against this new project yet. These require the settings above; the previous sandbox payment test is not proof of production-project integration.
+- Security advisor reports the known authenticated SECURITY DEFINER reputation aggregate. Its bounded input and no-anonymous access were verified by the community suite. Reference: https://supabase.com/docs/guides/database/database-linter?lint=0029_authenticated_security_definer_function_executable

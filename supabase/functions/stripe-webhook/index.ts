@@ -12,7 +12,8 @@ Deno.serve(async req=>{
  let sync:StripeSync|undefined;
  try{
   const databaseUrl=Deno.env.get('SUPABASE_DB_URL');
-  if(databaseUrl){
+  const useSync=Deno.env.get('STRIPE_SYNC_ENABLED')==='true'||Deno.env.get('SUPABASE_URL')==='https://ilfpugydxlzmmxjfrmrv.supabase.co';
+  if(databaseUrl&&useSync){
    const schemaName=Deno.env.get('SYNC_SCHEMA_NAME')||'stripe';
    sync=await StripeSync.create({poolConfig:{connectionString:databaseUrl,max:1},stripeSecretKey:Deno.env.get('STRIPE_SECRET_KEY')!,partnerId:'pp_supabase',schemaName,syncTablesSchemaName:Deno.env.get('SYNC_TABLES_SCHEMA_NAME')||schemaName});
    // Sync verifies the signature with its managed webhook secret before any processing.

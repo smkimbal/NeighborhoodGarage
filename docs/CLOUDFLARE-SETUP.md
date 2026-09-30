@@ -1,4 +1,4 @@
-> Current backend status: see [PRODUCTION-BACKEND-STATUS.md](PRODUCTION-BACKEND-STATUS.md). The project now exists, but migration/security approval and provider setup are incomplete. Cloudflare deployment is intentionally gated.
+> Current backend status: see [PRODUCTION-BACKEND-STATUS.md](PRODUCTION-BACKEND-STATUS.md). The project schema and functions are deployed; Auth redirect settings and Stripe sandbox configuration still need completion. Cloudflare deployment is intentionally gated.
 
 # Neighborhood Garage — production branch deployment
 
