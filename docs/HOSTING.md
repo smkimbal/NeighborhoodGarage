@@ -1,34 +1,59 @@
-# Hosting preparation checkpoint — 2026-09-29
+# Cloudflare production migration — 2026-09-30
 
-GitHub Pages remains the active sandbox at https://smkimbal.github.io/NeighborhoodGarage/.
-The working branch is `neighborhood-garage-zip-2026-09-28`. No Cloudflare project, DNS change, custom domain, or migration has been performed.
+## Deployment separation
 
-## Prepared in this checkpoint
+| Environment | Hosting | Backend | Updates |
+| --- | --- | --- | --- |
+| Sandbox | GitHub Pages: https://smkimbal.github.io/NeighborhoodGarage/ | Existing Supabase ilfpugydxlzmmxjfrmrv and Stripe sandbox | Existing branch/Actions |
+| Production (prepared, not provisioned) | Cloudflare Pages: https://neighborhoodgarage.net/ | Separate Supabase project; payment activation remains a separate launch step | Reviewed direct-upload artifact from trusted workstation or non-GitHub CI |
 
-The static build still defaults to the committed GitHub callback. A future build can set `NG_PUBLIC_SITE_URL=https://your-chosen-domain.example/` to override only the public Auth callback in dist/config.js. The build rejects HTTP, credentials, query strings and fragments, and preserves subpaths. This variable is public, not a secret. No arbitrary environment variables are serialized into browser assets.
+No Cloudflare project, custom-domain binding, DNS record, production database or live payment configuration has been changed in this checkpoint. Cloudflare account access is still required. Production is independent of GitHub Pages and GitHub Actions; GitHub remains the experimentation/source checkpoint. Copy an approved release into a private production workspace if production source must also be kept outside GitHub.
 
-The build copies `_headers` into dist for future Cloudflare Pages static responses. It supplies frame protection, content-type protection, referrer policy and same-origin camera/GPS permissions. This is a limited CSP, not a complete script-source policy. GitHub Pages does not apply this file. Camera and GPS still require browser permission and HTTPS.
+## One-time Cloudflare setup
 
-## When a migration is authorized
+Use the existing account that owns neighborhoodgarage.net. Install Wrangler 4.145.0 on the trusted release runner (`npm install --global wrangler@4.145.0`). Authenticate and create a **Direct Upload** Pages project named `neighborhood-garage-production`, production branch `production`:
 
-1. Use Node 22, build command `npm ci && npm test && npm run check:edge && npm run build`, output directory `dist`.
-2. Set NG_PUBLIC_SITE_URL to the chosen HTTPS domain including its trailing slash. Configure the exact callback in Supabase Auth Site URL and Redirect URLs before testing email verification and password reset. Do not allow all preview domains.
-3. Update and deploy the backend's exact CORS/Stripe return-URL allowlist in `supabase/functions/_shared/runtime.ts`. It currently permits GitHub and local previews only. The frontend build variable does not change this backend restriction.
-4. Verify sign-up, confirmation, reset, optional Profile MFA, signed photo access, GPS, map, chat, Checkout, Connect return/refresh links and owner payout on that origin.
-5. Only after approval, change DNS and the active hosting destination. Keep the GitHub sandbox for rollback until the new origin passes acceptance checks.
+```sh
+wrangler pages project create neighborhood-garage-production --production-branch production
+```
 
-Cloudflare references: [build configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/) and [static response headers](https://developers.cloudflare.com/pages/configuration/headers/).
+Do not connect this project to GitHub. In Pages → Custom domains, associate `neighborhoodgarage.net` with this project **before** creating the DNS target. Let Cloudflare create the required apex record after reviewing existing DNS; preserve mail records. Add `www.neighborhoodgarage.net` as another custom domain and configure a permanent redirect to the apex. Wait for domain verification and HTTPS certificate activation. Do not add a CNAME file to the GitHub sandbox.
 
-## Review items still open
+Use a scoped Cloudflare API token with Account / Cloudflare Pages / Edit, restricted to this account, on the release runner. Keep `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in its secret store, never source or browser config. DNS changes are separate from routine releases.
 
-- Keep MFA enrollment optional and located in Profile security.
-- Enable Supabase leaked-password protection in Auth settings if available; SQL cannot change this Auth setting.
-- Review and test the intentionally privileged aggregate `reputation_summary` function before broad public access.
-- Finish a complete sandbox owner onboarding, renter payment, pickup, return, approval and payout journey.
-- Consolidate duplicate Pages publishing via repository Settings → Pages → Source → GitHub Actions after confirming the Actions deployment succeeds. This repository administration setting was not changed.
-- Add a separate protected, manually triggered backend deployment workflow after its environment, review gate and secrets are configured.
-- Messaging uses TLS and participant RLS, not end-to-end encryption. Listing photos are readable by authenticated users under Storage policies.
+## Production backend and launch prerequisites
 
-## Validation limits for this checkpoint
+Create a separate Supabase project; apply the repository migrations and deploy its Edge Functions (including the combined Stripe webhook). Do not copy sandbox customer/test records. Set production Edge secret `NG_DEPLOY_TARGET=production`: the shared runtime then accepts only `https://neighborhoodgarage.net`, while the existing sandbox defaults stay unchanged. Preview domains are intentionally not trusted.
 
-The local execution environment was unavailable. Changes were prepared through GitHub; no new browser journey or local backend test was executed. CI results must be checked on the resulting commit. This checkpoint does not claim the remaining application review is complete.
+Set production Auth Site URL and allowed redirect URL to `https://neighborhoodgarage.net/`. Configure production mail delivery and verify signup, confirmation, reset and optional MFA on the actual domain. Configure storage and verify RLS with two unrelated test accounts. Keep the sandbox project's current GitHub redirect intact.
+
+Stripe live activation is not part of this hosting change. Current app text and workflows still describe sandbox payments. Before a commercial launch, complete owner onboarding → renter payment → return → approval → payout tests, update payment disclosures for the selected mode, configure a production webhook and its signing secret, and verify production keys/account separately. Hosting on Cloudflare alone does not make payment processing production-ready.
+
+## Repeatable release (no GitHub deployment dependency)
+
+On a trusted workstation or non-GitHub CI runner, install locked dependencies with `npm ci`. Supply these public build settings through the runner environment:
+
+```sh
+export NG_PUBLIC_SITE_URL=https://neighborhoodgarage.net/
+export NG_PUBLIC_SUPABASE_URL=https://PRODUCTION_PROJECT.supabase.co
+export NG_PUBLIC_SUPABASE_KEY=sb_publishable_REPLACE_WITH_PRODUCTION_PUBLIC_KEY
+npm run release:prepare
+```
+
+The command runs unit/contract tests and Edge type checks, builds `dist-production/`, and creates a SHA-256 inventory in `production-release.json`. It rejects missing production config, the existing sandbox project and secret keys. It does not modify the committed sandbox config or root assets. Only explicitly enumerated public values enter the browser bundle.
+
+Review/preview this artifact and run the browser journey plus actual-domain acceptance before business launch. The automated checks do not replace provider integration tests. Preserve the artifact and manifest in the private release runner's artifact store. Then, with Cloudflare credentials injected:
+
+```sh
+npm run release:publish
+```
+
+Publishing verifies the inventory and uploads the exact reviewed bytes to the explicit production project/branch. It does not rebuild and cannot accidentally choose the experimental Git branch. In CI, keep prepare and publish separate, with a protected production approval between them. No production workflow is added to GitHub.
+
+For rollback, select the previous known-good production deployment in Cloudflare Pages. Frontend rollback does not undo database changes; use backward-compatible migrations and independent database backups.
+
+## Acceptance before DNS launch
+
+Check HTTPS, apex/www canonical behavior, config origin, static headers, email callbacks, profile, listing/photo upload, GPS/map, private chat, deletion protections and checkout/Connect callbacks. Verify the GitHub sandbox remains unchanged. Do not direct paying customers to an unverified production backend.
+
+References: https://developers.cloudflare.com/pages/get-started/direct-upload/ and https://developers.cloudflare.com/pages/configuration/custom-domains/.

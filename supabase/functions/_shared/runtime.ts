@@ -1,7 +1,8 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.95.0';
 import Stripe from 'npm:stripe@22.6.0';
+import {allowedOrigins} from './origins.ts';
 export class HttpError extends Error { constructor(message:string,public status=400,public code='request_failed'){super(message);} }
-const origins=new Set(['https://smkimbal.github.io','http://localhost:5173','http://127.0.0.1:5173','http://localhost:3000','http://127.0.0.1:3000']);
+const origins=allowedOrigins(Deno.env.get('NG_DEPLOY_TARGET'));
 export function envKey(jsonName:string,legacy:string){
  const direct=Deno.env.get(legacy); if(direct)return direct;
  try {const keys=JSON.parse(Deno.env.get(jsonName)||'{}');const value=keys.default||Object.values(keys)[0];if(typeof value==='string')return value;}catch{/* actionable failure below */}
@@ -29,7 +30,7 @@ export function stripeClient(){
 }
 export function checkedUrl(raw:string){
  let url:URL;try{url=new URL(raw);}catch{throw new HttpError('Invalid return URL.');}
- if(!origins.has(url.origin)||(url.origin==='https://smkimbal.github.io'&&!url.pathname.startsWith('/NeighborhoodGarage/')))throw new HttpError('Invalid return URL.');
+ if(url.username||url.password||!origins.has(url.origin)||(url.origin==='https://smkimbal.github.io'&&!url.pathname.startsWith('/NeighborhoodGarage/')))throw new HttpError('Invalid return URL.');
  return url.toString();
 }
 export function checked<T>(result:{data:T,error:unknown}):T {if(result.error)throw result.error;return result.data;}
