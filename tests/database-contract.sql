@@ -28,7 +28,8 @@ begin
  perform public.change_rental(owner_id,r.id,'approve');
  select sum(amount_cents) into balance from public.credit_ledger where user_id=renter_id;
  if balance<>7500 then raise exception 'Deposit refund was duplicated or missing';end if;
- if (select payout_status from public.rentals where id=r.id)<>'pending' then raise exception 'Payout must be independent of credit return';end if;
+ if (select payout_status from public.rentals where id=r.id)<>'credited' then raise exception 'Owner earnings must stay in app credits';end if;
+ if (select sum(amount_cents) from public.credit_ledger where user_id=owner_id)<>1140 then raise exception 'Owner earnings missing or duplicated';end if;
  if not (select available from public.tools where id=tool1) then raise exception 'Approved tool not released';end if;
  perform public.finish_payment('evt_failed_'||r2.id,'checkout.session.async_payment_failed','cs_qa_'||r2.id,r2.id,false,8700,'usd',null,'{}');
  if (select status from public.rentals where id=r2.id)<>'payment_failed' then raise exception 'Async failure not applied';end if;

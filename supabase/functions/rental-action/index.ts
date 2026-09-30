@@ -25,7 +25,7 @@ Deno.serve(endpoint(async req=>{
  }
  if(action!=='retry-payout')r=checked(await admin.rpc('change_rental',{p_user:user.id,p_rental:r.id,p_action:action,p_data:data}));
  let payoutWarning:string|undefined;
- if((action==='approve'||action==='retry-payout')&&r.owner_id===user.id&&r.status==='complete'&&r.payout_status==='pending'){
+ if(action==='retry-payout'&&r.owner_id===user.id&&r.status==='complete'&&r.payout_status==='pending'){
   try{
    const owner=checked(await admin.from('profiles').select('stripe_account_id,stripe_onboarding_complete').eq('id',user.id).single());
    if(!owner||!owner.stripe_account_id||!owner.stripe_onboarding_complete)throw new Error('Finish owner payout setup.');

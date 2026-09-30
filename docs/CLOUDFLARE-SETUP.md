@@ -1,3 +1,5 @@
+> Current backend status: see [PRODUCTION-BACKEND-STATUS.md](PRODUCTION-BACKEND-STATUS.md). The project now exists, but migration/security approval and provider setup are incomplete. Cloudflare deployment is intentionally gated.
+
 # Neighborhood Garage — production branch deployment
 
 The `production` branch starts at test-branch commit `4f4261bcd4939207e02a7a40f6070daf89f82611` and adds production deployment setup. GitHub stores source; **Cloudflare builds and hosts the live website**. The experimental branch and its GitHub Pages URL remain separate and active. This supersedes the previous preference for Direct Upload only.
@@ -36,8 +38,9 @@ Stripe remains a separate launch decision. Existing workflows/disclosures still 
 | --- | --- |
 | `NODE_VERSION` | `22` |
 | `NG_PUBLIC_SITE_URL` | `https://neighborhoodgarage.net/` |
-| `NG_PUBLIC_SUPABASE_URL` | Your separate production project's `https://PROJECT_REF.supabase.co` URL |
-| `NG_PUBLIC_SUPABASE_KEY` | That project's `sb_publishable_...` key |
+| `NG_PUBLIC_SUPABASE_URL` | `https://zbbespojxxoheavodtqs.supabase.co` (also defaults in the build) |
+| `NG_PUBLIC_SUPABASE_KEY` | `sb_publishable_f0Tc0Qz4sWlCRaT58d2qlA_ZKRi-7Ot` (public; also defaults in the build) |
+| `NG_PRODUCTION_BACKEND_READY` | Set to `true` only after the backend checklist is complete |
 
 7. Save and deploy. A successful build produces the static frontend on Cloudflare. Missing/invalid production configuration intentionally fails the build.
 8. In project **Settings → Builds → Branch control**, verify `production` is the production branch and set **Preview branches to None**. This prevents experiments and pull requests from deploying with production settings. Keep production automatic deployments enabled.

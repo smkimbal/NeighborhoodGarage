@@ -4,9 +4,9 @@ Deno.serve(endpoint(async req=>{
  const {toolId,days,successUrl,cancelUrl,requestId}=await req.json();
  if(!Number.isInteger(days)||days<1||days>30||!requestId)throw new HttpError('Choose 1–30 days and retry checkout.');
  const success=checkedUrl(successUrl),cancel=checkedUrl(cancelUrl);
- const stripe=stripeClient(); // Fail before reserving credits when configuration is missing.
  const r=checked(await admin.rpc('reserve_rental',{p_user:user.id,p_tool:toolId,p_days:days,p_request:requestId}));
  if(r.status==='reserved')return {paid:true,rental:r};
+ const stripe=stripeClient(); // Credit-only reservations return above without Stripe configuration or calls.
  if(r.status!=='pending_payment')throw new HttpError('This checkout has ended. Start a new reservation.');
  if(r.stripe_checkout_session_id){const existing=await stripe.checkout.sessions.retrieve(r.stripe_checkout_session_id);if(existing.status==='open')return {checkoutUrl:existing.url,rental:r};throw new HttpError('Payment is processing or checkout has ended. Check My rentals.');}
  const session=await stripe.checkout.sessions.create({
