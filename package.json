@@ -9,7 +9,8 @@
     "test": "node --check src/app.js && node --check src/supabase.js && node --test tests/*.test.mjs",
     "check:edge": "deno check supabase/functions/*/index.ts",
     "release:prepare": "node scripts/release-production.mjs prepare",
-    "release:publish": "node scripts/release-production.mjs publish"
+    "release:publish": "node scripts/release-production.mjs publish",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs"
   },
   "engines": {
     "node": ">=20"

@@ -1,3 +1,7 @@
+# Production deployment
+
+This branch is prepared for Cloudflare Pages at `https://neighborhoodgarage.net/`. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). A separate production Supabase project and Cloudflare setup are still required. The test branch remains the GitHub Pages sandbox.
+
 # Neighborhood Garage
 
 Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.

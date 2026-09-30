@@ -12,6 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
+    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,6 +26,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tests/walkthrough.browser.mjs
   deploy:
+    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
     needs: test
     runs-on: ubuntu-latest
     environment:

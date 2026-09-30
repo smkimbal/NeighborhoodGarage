@@ -1,3 +1,7 @@
+# Current production setup
+
+The production branch now uses Cloudflare Git integration for automated releases. Follow [CLOUDFLARE-SETUP.md](CLOUDFLARE-SETUP.md). The Direct Upload procedure below is an alternative, not the selected default.
+
 # Cloudflare production migration — 2026-09-30
 
 ## Deployment separation
