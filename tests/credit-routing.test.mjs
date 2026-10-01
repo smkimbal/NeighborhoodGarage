@@ -6,7 +6,7 @@ async function handler(file,runtime){
  const source=(await readFile(file,'utf8')).replace(/^import .*runtime.ts';\n/,'');
  const {code}=await transform(source,{loader:'ts',format:'esm'});
  let result;
- new Function('Deno',...Object.keys(runtime),code)({serve:h=>result=h},...Object.values(runtime));
+ new Function('Deno',...Object.keys(runtime),code)({serve:h=>result=h,env:{get:k=>k==='SUPABASE_URL'?'https://zbbespojxxoheavodtqs.supabase.co':undefined}},...Object.values(runtime));
  return result;
 }
 const checked=r=>{if(r.error)throw r.error;return r.data};
@@ -49,4 +49,18 @@ test('old ambiguous withdrawal cannot create a fresh transfer after idempotency 
  });
  await assert.rejects(()=>h({json:async()=>({amountCents:500,requestId:'w'})}),/support review/);
  assert.equal(creates,0);
+});
+
+test('payment recovery verifies Stripe state before settlement and rejects foreign project',async()=>{
+ for(const foreign of [false,true]){
+ let settled=0;
+ const r={id:'r',owner_id:'owner',renter_id:'renter',status:'pending_payment',stripe_checkout_session_id:'cs_test'};
+ const chain={select(){return this},eq(){return this},async single(){return {data:settled?{...r,status:'reserved'}:r}}};
+ const h=await handler('supabase/functions/rental-action/index.ts',{
+ authenticate:async()=>({user:{id:'renter'},admin:{from:()=>chain,rpc:async(name,args)=>{assert.equal(name,'finish_payment');assert.equal(args.p_amount,300);settled++;return {data:null}}}}),checked,endpoint:f=>f,HttpError:Error,
+ stripeClient:()=>({checkout:{sessions:{retrieve:async()=>({id:'cs_test',status:'complete',payment_status:'paid',livemode:false,metadata:{project_ref:foreign?'wrong':'zbbespojxxoheavodtqs',rental_id:'r'},client_reference_id:'r',amount_total:300,currency:'usd',payment_intent:'pi_test'})}}})
+ });
+ const call=()=>h({json:async()=>({rentalId:'r',action:'sync-payment'})});
+ if(foreign){await assert.rejects(call,/does not match/);assert.equal(settled,0);}else{assert.equal((await call()).rental.status,'reserved');assert.equal(settled,1);}
+ }
 });

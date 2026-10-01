@@ -4,6 +4,17 @@ Deno.serve(endpoint(async req=>{
  const body=await req.json(),{rentalId,action}=body;
  let r=checked(await admin.from('rentals').select('*').eq('id',rentalId).single());
  if(![r.owner_id,r.renter_id].includes(user.id))throw new HttpError('Rental not found.',404);
+ if(action==='sync-payment'){
+  if(r.status!=='pending_payment')return {rental:r};
+  if(!r.stripe_checkout_session_id)throw new HttpError('Resume checkout first.');
+  const session=await stripeClient().checkout.sessions.retrieve(r.stripe_checkout_session_id);
+  const projectRef=new URL(Deno.env.get('SUPABASE_URL')!).hostname.split('.')[0];
+  if(session.livemode!==((Deno.env.get('STRIPE_MODE')||'sandbox')==='live')||session.metadata?.project_ref!==projectRef||session.metadata?.rental_id!==r.id||session.client_reference_id!==r.id)throw new HttpError('Payment does not match this rental.',409);
+  if(session.status!=='complete'||session.payment_status!=='paid')throw new HttpError('Stripe has not confirmed this payment yet.');
+  checked(await admin.rpc('finish_payment',{p_event:'reconcile:'+session.id,p_type:'checkout.session.reconciled',p_session:session.id,p_rental:r.id,p_paid:true,p_amount:session.amount_total,p_currency:session.currency,p_intent:typeof session.payment_intent==='string'?session.payment_intent:session.payment_intent?.id||null,p_payload:{session_id:session.id,source:'stripe_api'}}));
+  r=checked(await admin.from('rentals').select('*').eq('id',r.id).single());
+  return {rental:r};
+ }
  let data:Record<string,unknown>={code:body.code};
  if(action==='return'){
   if(r.renter_id!==user.id||r.status!=='out')throw new HttpError('Return is unavailable.');

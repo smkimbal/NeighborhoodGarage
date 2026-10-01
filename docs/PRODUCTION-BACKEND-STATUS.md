@@ -1,3 +1,5 @@
+> Updated October 1: Auth redirect and Stripe test key verified; actual Stripe and internal-credit rental tests completed. The production webhook was created; its signing secret still needs configuration. See [the current verification report](VERIFICATION-2026-10-01.md); the setup checklist below is historical where superseded.
+
 # Production backend checkpoint — 2026-09-30
 
 Created in the existing **Neighborhood Garage** Free organization with a quoted project cost of **$0/month**:

@@ -29,5 +29,6 @@
     "playwright": "1.63.0",
     "stripe": "22.6.0",
     "supabase": "2.81.3"
-  }
+  },
+  "packageManager": "npm@10.9.2"
 }

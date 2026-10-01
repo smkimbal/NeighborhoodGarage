@@ -7,7 +7,7 @@ import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
 const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname;const path=resolve('dist','.'+(name==='/'?'/index.html':name));const data=await readFile(path);res.setHeader('content-type',({'.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.html':'text/html'})[extname(path)]||'text/plain');res.end(data)}catch{res.writeHead(404).end()}});
 await new Promise(r=>server.listen(5173,'127.0.0.1',r));
-const launch={headless:true};if(process.env.CHROMIUM_PATH){launch.executablePath=process.env.CHROMIUM_PATH;const imported=createRequire(process.env.CHROMIUM_HELPER)('@sparticuz/chromium');launch.args=(imported.default||imported).args.filter(a=>a!=='--single-process');}
+const launch={headless:true};if(process.env.CHROMIUM_PATH){launch.executablePath=process.env.CHROMIUM_PATH;const imported=createRequire(process.env.CHROMIUM_HELPER)('@sparticuz/chromium');launch.args=(imported.default||imported).args.filter(a=>a!=='--single-process'&&a!=='--disable-web-security'&&a!=='--allow-running-insecure-content');}
 const browser=await chromium.launch(launch),errors=[];
 const me='00000000-0000-4000-8000-000000000001',owner='00000000-0000-4000-8000-000000000002',tool='00000000-0000-4000-8000-000000000003';
 const jwt=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:me,role:'authenticated',aal:'aal1',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.'+Buffer.from('signature').toString('base64url');
@@ -17,8 +17,8 @@ const listings=[{id:'00000000-0000-4000-8000-000000000004',owner_id:me,title:'My
 const inbox=[],loans=[],ratings=[],wallet=[];let failMessage=true;const requests=[];let delayReputation=false,releaseReputation,markReputationStarted;const reputationStarted=new Promise(resolve=>markReputationStarted=resolve);const sockets=[];let pendingFactor=null;
 try{
  const page=await browser.newPage({viewport:{width:375,height:812},geolocation:{latitude:41.88123,longitude:-87.63123},permissions:['geolocation']});page.on('pageerror',e=>errors.push(e.message));page.on('websocket',socket=>sockets.push(socket.url()));
- await page.routeWebSocket('wss://ilfpugydxlzmmxjfrmrv.supabase.co/**',socket=>socket.close());
- await page.route('https://ilfpugydxlzmmxjfrmrv.supabase.co/**',async route=>{
+ await page.routeWebSocket(/^wss:\/\/(ilfpugydxlzmmxjfrmrv|zbbespojxxoheavodtqs)\.supabase\.co\//,socket=>socket.close());
+ await page.route(/^https:\/\/(ilfpugydxlzmmxjfrmrv|zbbespojxxoheavodtqs)\.supabase\.co\//,async route=>{
   const url=new URL(route.request().url()),p=url.pathname,method=route.request().method();let data={};requests.push({path:p,method,body:route.request().postData()});
   if(p.endsWith('/auth/v1/signup'))data={user:identity,session:null};
   else if(p.endsWith('/auth/v1/token'))data={access_token:jwt,refresh_token:'mock-refresh',token_type:'bearer',expires_in:3600,expires_at:Math.floor(Date.now()/1000)+3600,user:identity};

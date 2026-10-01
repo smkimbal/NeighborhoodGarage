@@ -1,3 +1,5 @@
+> October 1 verification: Auth default redirect and the Stripe test API key work. Production Stripe webhook is now created; its signing secret still needs to be configured; see [the verification report](VERIFICATION-2026-10-01.md).
+
 > Current backend status: see [PRODUCTION-BACKEND-STATUS.md](PRODUCTION-BACKEND-STATUS.md). The project schema and functions are deployed; Auth redirect settings and Stripe sandbox configuration still need completion. Cloudflare deployment is intentionally gated.
 
 # Neighborhood Garage — production branch deployment
@@ -36,7 +38,8 @@ Stripe remains a separate launch decision. Existing workflows/disclosures still 
 
 | Variable | Value |
 | --- | --- |
-| `NODE_VERSION` | `22` |
+| `NODE_VERSION` | `22` (also pinned by `.node-version`) |
+| `SKIP_DEPENDENCY_INSTALL` | `true` — use the explicit `npm ci` build command above |
 | `NG_PUBLIC_SITE_URL` | `https://neighborhoodgarage.net/` |
 | `NG_PUBLIC_SUPABASE_URL` | `https://zbbespojxxoheavodtqs.supabase.co` (also defaults in the build) |
 | `NG_PUBLIC_SUPABASE_KEY` | `sb_publishable_f0Tc0Qz4sWlCRaT58d2qlA_ZKRi-7Ot` (public; also defaults in the build) |
@@ -82,3 +85,11 @@ Official references:
 - https://developers.cloudflare.com/pages/configuration/branch-build-controls/
 - https://developers.cloudflare.com/pages/configuration/custom-domains/
 - https://developers.cloudflare.com/pages/get-started/direct-upload/
+
+## If the build reports a bun.lock error
+
+This production branch contains **package-lock.json only**, and declares `packageManager: npm@10.9.2`. There is no Bun lockfile to repair in this branch. The precise Cloudflare failure cannot be diagnosed without its log.
+
+In the Pages build settings, select branch `production`, repository root, framework None, and the explicit npm build command above. Set `SKIP_DEPENDENCY_INSTALL=true` so automatic installation cannot choose Bun before that command runs. Clear the project's build cache and retry the latest production commit. Ensure this is a **Pages** project; a Workers build/deploy command is a different configuration. Do not add a generated Bun lockfile to work around a mismatched branch or installer.
+
+Official configuration: https://developers.cloudflare.com/pages/configuration/build-image/#skip-dependency-install
