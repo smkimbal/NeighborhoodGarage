@@ -1,5 +1,7 @@
 # Production verification — October 1, 2026
 
+> Later deployment correction: Cloudflare's latest supplied log passed 17 tests and all Edge Function checks, then failed only on the required backend-readiness flag. The flag is now advisory so the frontend can be deployed for real-domain verification. The Workers asset-directory fix remains in place. This change does not establish email delivery or webhook readiness and does not change Stripe payment mode.
+
 Project: `zbbespojxxoheavodtqs`. Stripe account: Neighborhood Garage sandbox (`acct_1UKqGKRsHH5z9atP`), test mode only. No real-money charge or bank transfer was made.
 
 ## Verified against actual services
@@ -20,7 +22,7 @@ Project: `zbbespojxxoheavodtqs`. Stripe account: Neighborhood Garage sandbox (`a
 
 - Branch inventory contains `package-lock.json` and no `bun.lock` or `bun.lockb`.
 - Added explicit `packageManager: npm@10.9.2` and `.node-version` (22). Keep Cloudflare's build command beginning with `npm ci` and set `SKIP_DEPENDENCY_INSTALL=true` in its **build environment** to bypass automatic Bun selection. Clear build cache and confirm branch `production` and repository root.
-- A clean npm dependency install succeeded (243 packages), and the production bundle built with the real public Supabase configuration. Readiness was overridden only for local build verification; the committed deployment gate remains intact.
+- A clean npm dependency install succeeded (243 packages), and the production bundle built with the real public Supabase configuration. The original build used a local readiness override. After the later deployment correction, a fresh build with the flag unset passed, as did Wrangler's deployment dry run using only dist-production. The output uses the intended project/domain and contains only public configuration; asset sizes are below 25 MiB.
 - 18 unit/service tests pass, including payment recovery and rejection of another project's paid session. All Edge Functions type-check.
 - The local browser walkthrough could not run: the available Chromium binary crashed, and the official replacement download arrived invalid/truncated. This is an execution-environment limitation, not a passing UI test. The hosted Stripe form was tested separately through the cloud browser.
 - Stripe's return navigation could not be inspected: the cloud browser rejected the destination after checkout. Payment success was independently verified using Stripe's API.
@@ -34,4 +36,4 @@ Created Stripe sandbox webhook `we_1ULkQ8RsHH5z9atPufFnwB0d` for:
 
 It subscribes to `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`. In Stripe Workbench → Webhooks, open this endpoint and reveal its signing secret. Store that endpoint's signing secret in the production Supabase project's Edge Function secrets as **STRIPE_WEBHOOK_SECRET**. This differs from STRIPE_SECRET_KEY. Do not put either secret in GitHub or chat. The connector cannot set Supabase secrets.
 
-Keep `STRIPE_MODE=sandbox`. The payment-status recovery is resilience for delayed events, not a replacement for webhooks. Verify webhook delivery and a real signup email before enabling the Cloudflare backend-readiness flag or accepting customers.
+Keep `STRIPE_MODE=sandbox`. The payment-status recovery is resilience for delayed events, not a replacement for webhooks. Deploy the site for testing, then verify webhook delivery and a real signup email before accepting customers. Setting the optional backend-readiness flag only suppresses the build reminder.

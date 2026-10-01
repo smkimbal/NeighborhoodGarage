@@ -33,9 +33,12 @@ in scripts/build-cloudflare.mjs. NG_PUBLIC_SITE_URL=https://neighborhoodgarage.n
 is the public site URL. Never put Stripe or Supabase service secrets in frontend
 build settings.
 
-NG_PRODUCTION_BACKEND_READY=true is required by the production build. Set it only
-after finishing the backend checklist below; this flag is an operator assertion,
-not an automatic health check. A missing flag deliberately fails the build.
+NG_PRODUCTION_BACKEND_READY is optional. When it is absent or not true, the build
+prints a reminder and still creates the production frontend. Deploy the site so
+real-domain email and sandbox payment callbacks can be tested. This flag only
+acknowledges verification; it does not check backend health or change payment mode.
+The production domain, database and public-key validation still fail on invalid
+configuration. Complete the following checks before accepting customers:
 
 - Production schema and Edge Functions are deployed.
 - Auth Site URL points to https://neighborhoodgarage.net/; verify signup and reset
