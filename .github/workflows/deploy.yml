@@ -1,48 +1,48 @@
-name: Deploy Neighborhood Garage to GitHub Pages
-
+name: Deploy GitHub Pages
 on:
   push:
-    branches: [main, master]
+    branches: [neighborhood-garage-zip-2026-09-28]
   workflow_dispatch:
-
 permissions:
   contents: read
   pages: write
   id-token: write
-
 concurrency:
-  group: 'pages'
-  cancel-in-progress: false
-
+  group: pages
+  cancel-in-progress: true
 jobs:
-  build-and-deploy:
+  test:
+    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm test
+      - run: npm run check:edge
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/walkthrough.browser.mjs
+  deploy:
+    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
+    needs: test
+    runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
-
-      - name: Install Dependencies
-        run: npm install
-
-      - name: Build Application
-        run: npm run build
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v3
+          node-version: 22
+      - run: npm ci
+      - run: npm run build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
-          path: './dist'
-
-      - name: Deploy to GitHub Pages
+          path: dist
+      - name: Deploy
         id: deployment
         uses: actions/deploy-pages@v4

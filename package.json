@@ -1,39 +1,33 @@
 {
-  "name": "react-example",
+  "name": "neighborhood-garage",
+  "version": "2.0.0",
   "private": true,
-  "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build",
-    "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist",
-    "start": "node server.ts",
-    "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "dev": "npm run build && python3 -m http.server 5173 --directory dist",
+    "build": "node scripts/build.mjs",
+    "test": "node --check src/app.js && node --check src/supabase.js && node --test tests/*.test.mjs",
+    "check:edge": "deno check supabase/functions/*/index.ts",
+    "release:prepare": "node scripts/release-production.mjs prepare",
+    "release:publish": "node scripts/release-production.mjs publish",
+    "build:cloudflare": "node scripts/build-cloudflare.mjs"
+  },
+  "engines": {
+    "node": ">=20"
   },
   "dependencies": {
-    "@google/genai": "^2.4.0",
-    "@tailwindcss/vite": "^4.3.3",
-    "@vitejs/plugin-react": "^6.1.1",
-    "lucide-react": "^0.546.0",
-    "react": "^19.0.1",
-    "react-dom": "^19.0.1",
-    "vite": "^8.3.0",
-    "express": "^4.21.2",
-    "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "@supabase/supabase-js": "2.95.0",
+    "@tensorflow-models/mobilenet": "^2.1.1",
+    "@tensorflow/tfjs": "^4.22.0",
+    "leaflet": "1.9.4",
+    "qrcode": "1.5.4"
   },
   "devDependencies": {
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.3.0",
-    "@types/react-dom": "^19.3.0",
-    "autoprefixer": "^10.4.21",
-    "gh-pages": "^6.3.0",
-    "tailwindcss": "^4.3.3",
-    "tsx": "^4.21.0",
-    "typescript": "^7.0.2"
+    "@stripe/sync-engine": "1.0.32",
+    "deno": "2.6.8",
+    "esbuild": "0.25.12",
+    "playwright": "1.63.0",
+    "stripe": "22.6.0",
+    "supabase": "2.81.3"
   }
 }

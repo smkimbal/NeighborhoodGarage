@@ -1,8 +1,0 @@
-{
-  "name": "ToolShare - Neighborhood Tool Rental & Sharing",
-  "description": "Peer-to-peer neighborhood tool sharing platform with included insurance, machine-vision condition verification, automated deposit calculation, instant credit escrow, and secure local coordination.",
-  "requestFramePermissions": [
-    "geolocation"
-  ],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
