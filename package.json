@@ -10,7 +10,8 @@
     "check:edge": "deno check supabase/functions/*/index.ts",
     "release:prepare": "node scripts/release-production.mjs prepare",
     "release:publish": "node scripts/release-production.mjs publish",
-    "build:cloudflare": "node scripts/build-cloudflare.mjs"
+    "build:cloudflare": "node scripts/build-cloudflare.mjs",
+    "deploy": "npx --yes wrangler@4.145.0 deploy"
   },
   "engines": {
     "node": ">=20"
