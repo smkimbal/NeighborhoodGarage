@@ -38,7 +38,9 @@ remain below Cloudflare's individual asset limit.
 
 ## Verification, October 2, 2026 (UTC)
 
-- All 26 unit/service checks pass, covering label-derived descriptions, ambiguous/low-confidence evidence,
+- A clean npm ci --engine-strict and the full production checks pass on Node
+  22.23.3 / npm 10.9.9, matching the failed Cloudflare build. All 26 unit/service
+  checks also pass on Node 24.19.0, covering label-derived descriptions, ambiguous/low-confidence evidence,
   numeric barcode safety, draft preservation, and actual ZXing QR/UPC decoding.
 - The browser walkthrough uses mocked Auth/database/payment transport, not real
   users or payments. It checks centered images, mobile taps, desktop clicks, zoom,
@@ -48,6 +50,8 @@ remain below Cloudflare's individual asset limit.
   model requests are intentionally blocked in that step to test label fallback.
 - Network assertions confirm that the scan invokes no remote identification Edge
   Function and uploads no scan photo. Existing form edits survive a repeated scan.
+- The production browser bundle decodes an actual branded QR image with native
+  BarcodeDetector disabled, confirming the bundled ZXing fallback works in ESM.
 - The production build and Wrangler dry run passed using only dist-production.
   The largest asset is about 3.9 MB, below the 25 MiB individual asset limit.
 
@@ -59,6 +63,10 @@ NG_TEST_DIST=dist-production node tests/walkthrough.browser.mjs
 
 Use CHROMIUM_PATH for an installed Chromium executable if Playwright's bundled
 browser is unavailable. The tests use CPU rendering with that override.
+
+ZXing 0.21.3 is pinned for Node 22 compatibility. Its CommonJS default export is
+handled as well as the browser's ES module exports. The production workflow checks
+Node 22 and 24 on each production-branch update without deploying to GitHub Pages.
 
 Component documentation:
 - https://github.com/naptha/tesseract.js

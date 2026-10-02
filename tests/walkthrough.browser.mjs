@@ -4,6 +4,7 @@ import {createServer} from 'node:http';
 import {resolve,extname} from 'node:path';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
+import QRCode from 'qrcode';
 const output=process.env.NG_TEST_DIST||'dist';
 const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname;const path=resolve(output,'.'+(name==='/'?'/index.html':name));const data=await readFile(path);res.setHeader('content-type',({'.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.html':'text/html'})[extname(path)]||'text/plain');res.end(data)}catch{res.writeHead(404).end()}});
 await new Promise(r=>server.listen(5173,'127.0.0.1',r));
@@ -106,6 +107,14 @@ try{
  assert.equal(await page.locator('#lend-form [name=category]').inputValue(),'Home & DIY');
  await page.getByRole('button',{name:'Use suggested description',exact:true}).click();
  assert.match(await page.locator('#lend-form [name=description]').inputValue(),/DCD771/);
+ // Decode an actual QR image with the bundled fallback, even on native-capable browsers.
+ await page.evaluate(()=>Object.defineProperty(window,'BarcodeDetector',{configurable:true,value:undefined}));
+ const barcode='https://www.dewalt.com/product/dcd771/drill';
+ await page.locator('#label-photo').setInputFiles({name:'barcode.png',mimeType:'image/png',buffer:await QRCode.toBuffer(barcode,{width:400,margin:4})});
+ await page.locator('#identify-tool').click();await page.locator('#scan-suggestion:not(.hidden)').waitFor({timeout:75000});
+ assert.match(await page.locator('#scan-suggestion .tracking').innerText(),/https:\/\/www\.dewalt\.com\/product\/dcd771\/drill/);
+ await page.locator('#scan-suggestion').getByText('DEWALT',{exact:true}).waitFor();
+ console.log('PASS production browser bundle decodes a branded QR photo without native barcode support');
  assert.equal(requests.slice(scanNetworkStart).some(r=>r.method==='POST'&&/\/storage\/v1\/object\/(tool-photos|return-photos)\//.test(r.path)),false,'identification does not upload scan photos');
  assert.equal(requests.slice(scanNetworkStart).some(r=>r.path.endsWith('/functions/v1/identify-tool')),false,'identification does not call a remote AI function');
  console.log('PASS real browser OCR, description/brand/model suggestions, manual edits preserved, explicit acceptance and no scan upload');

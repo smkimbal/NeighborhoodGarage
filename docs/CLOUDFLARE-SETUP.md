@@ -14,7 +14,7 @@ Open Workers & Pages → neighborhoodgarage → Settings → Build.
 | Git repository | smkimbal/NeighborhoodGarage |
 | Branch control → Production branch | production |
 | Root directory | Repository root |
-| Build command | npm ci && npm test && npm run check:edge && npm run build:cloudflare |
+| Build command | npm ci --engine-strict && npm run check:cloudflare |
 | Deploy command | npm run deploy |
 | Non-production branch builds | Disabled |
 
@@ -28,7 +28,29 @@ in the deploy script so npx cannot silently select a newer release.
 ## Build environment
 
 Set NODE_VERSION=22 and SKIP_DEPENDENCY_INSTALL=true (the explicit npm ci above
-installs dependencies). Public production Supabase URL and publishable key default
+installs dependencies). If you keep Cloudflare's automatic dependency installation,
+leave SKIP_DEPENDENCY_INSTALL unset and use npm run check:cloudflare as the build
+command instead. Choose one install path to avoid installing everything twice.
+The existing npm ci && npm test && npm run check:edge && npm run build:cloudflare
+command also remains valid; the compatibility fix does not require changing it.
+
+The repository's .node-version selects Node 22. ZXing is pinned to 0.21.3, which
+supports this runtime; versions 0.22.0 and 0.23.0 require Node 24. The local scanner
+supports both Node's CommonJS import shape and the browser's ES module bundle.
+The production validation workflow tests Node 22 and 24 and performs a browser
+walkthrough and Wrangler dry run on Node 22. It does not publish a GitHub website.
+
+Verification on October 2: a clean install with --engine-strict succeeded on
+Node 22.23.3 / npm 10.9.9. All 26 tests, all nine Edge Function checks, the production
+build, the browser walkthrough (including real local OCR and QR decoding), and
+the pinned Wrangler dry run passed. Wrangler used only dist-production; the
+largest asset is 3,905,767 bytes, below the 25 MiB limit. The remaining
+node-domexception deprecation warning is a transitive development dependency of
+the Supabase CLI. It does not fail installation and is not part of the frontend.
+These are local verification results; Cloudflare's build/deployment must still
+finish successfully for the pushed production commit.
+
+Public production Supabase URL and publishable key default
 in scripts/build-cloudflare.mjs. NG_PUBLIC_SITE_URL=https://neighborhoodgarage.net/
 is the public site URL. Never put Stripe or Supabase service secrets in frontend
 build settings.
@@ -71,6 +93,7 @@ The release:prepare/release:publish scripts are the older Pages Direct Upload
 alternative and are not used by this Worker's automated deployment.
 
 References:
+- https://developers.cloudflare.com/workers/ci-cd/builds/build-image/
 - https://developers.cloudflare.com/workers/ci-cd/builds/build-branches/
 - https://developers.cloudflare.com/workers/ci-cd/builds/configuration/
 - https://developers.cloudflare.com/workers/static-assets/

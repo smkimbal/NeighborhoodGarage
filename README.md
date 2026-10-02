@@ -2,7 +2,7 @@
 
 # Production deployment
 
-This branch is prepared for Cloudflare Pages at `https://neighborhoodgarage.net/`. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). A separate production Supabase project and Cloudflare setup are still required. The test branch remains the GitHub Pages sandbox.
+This branch deploys to the Cloudflare Worker at `https://neighborhoodgarage.net/` with its separate production Supabase project. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). Cloudflare hosts the production website; the test branch remains the GitHub Pages sandbox. Use Node 22 or newer and run `npm run check:cloudflare` to validate the production build.
 
 # Neighborhood Garage
 

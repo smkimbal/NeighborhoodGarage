@@ -11,17 +11,18 @@
     "release:prepare": "node scripts/release-production.mjs prepare",
     "release:publish": "node scripts/release-production.mjs publish",
     "build:cloudflare": "node scripts/build-cloudflare.mjs",
+    "check:cloudflare": "npm test && npm run check:edge && npm run build:cloudflare",
     "deploy": "npx --yes wrangler@4.145.0 deploy"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.95.0",
     "@tensorflow-models/mobilenet": "^2.1.1",
     "@tensorflow/tfjs": "^4.22.0",
     "@tesseract.js-data/eng": "1.0.0",
-    "@zxing/library": "0.23.0",
+    "@zxing/library": "0.21.3",
     "leaflet": "1.9.4",
     "qrcode": "1.5.4",
     "tesseract.js": "7.0.0"
@@ -34,5 +35,5 @@
     "stripe": "22.6.0",
     "supabase": "2.81.3"
   },
-  "packageManager": "npm@10.9.2"
+  "packageManager": "npm@10.9.9"
 }

@@ -34,7 +34,9 @@ export async function readPhotoBarcodes(canvas) {
       }
     } catch {} // A browser with no native support uses the bundled free decoder.
   }
-  const {QRCodeReader, MultiFormatOneDReader, DataMatrixReader, RGBLuminanceSource, BinaryBitmap, HybridBinarizer, DecodeHintType, BarcodeFormat} = await import('@zxing/library');
+  const zxing = await import('@zxing/library');
+  // Node 22 loads the CommonJS entry through default; the browser bundle uses ESM.
+  const {QRCodeReader, MultiFormatOneDReader, DataMatrixReader, RGBLuminanceSource, BinaryBitmap, HybridBinarizer, DecodeHintType, BarcodeFormat} = zxing.default || zxing;
   const frame = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
   const luminance = new Uint8ClampedArray(canvas.width * canvas.height);
   for (let i = 0; i < luminance.length; i++) luminance[i] = (frame.data[i * 4] + 2 * frame.data[i * 4 + 1] + frame.data[i * 4 + 2]) / 4;
