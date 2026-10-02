@@ -1,3 +1,5 @@
+> Garage photo viewing and free local label/barcode identification: [usage and verification](docs/LOCAL-PHOTO-SCAN.md).
+
 # Production deployment
 
 This branch is prepared for Cloudflare Pages at `https://neighborhoodgarage.net/`. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). A separate production Supabase project and Cloudflare setup are still required. The test branch remains the GitHub Pages sandbox.

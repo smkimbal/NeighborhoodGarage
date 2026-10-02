@@ -2,24 +2,25 @@
 import {readFile} from 'node:fs/promises';
 import {createServer} from 'node:http';
 import {resolve,extname} from 'node:path';
-import {createRequire} from 'node:module';
 import {chromium} from 'playwright';
 import assert from 'node:assert/strict';
-const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname;const path=resolve('dist','.'+(name==='/'?'/index.html':name));const data=await readFile(path);res.setHeader('content-type',({'.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.html':'text/html'})[extname(path)]||'text/plain');res.end(data)}catch{res.writeHead(404).end()}});
+const output=process.env.NG_TEST_DIST||'dist';
+const server=createServer(async(req,res)=>{try{const name=new URL(req.url,'http://localhost').pathname;const path=resolve(output,'.'+(name==='/'?'/index.html':name));const data=await readFile(path);res.setHeader('content-type',({'.js':'application/javascript','.css':'text/css','.svg':'image/svg+xml','.html':'text/html'})[extname(path)]||'text/plain');res.end(data)}catch{res.writeHead(404).end()}});
 await new Promise(r=>server.listen(5173,'127.0.0.1',r));
-const launch={headless:true};if(process.env.CHROMIUM_PATH){launch.executablePath=process.env.CHROMIUM_PATH;const imported=createRequire(process.env.CHROMIUM_HELPER)('@sparticuz/chromium');launch.args=(imported.default||imported).args.filter(a=>a!=='--single-process'&&a!=='--disable-web-security'&&a!=='--allow-running-insecure-content');}
+const launch={headless:true};if(process.env.CHROMIUM_PATH){launch.executablePath=process.env.CHROMIUM_PATH;launch.args=['--disable-gpu'];}
 const browser=await chromium.launch(launch),errors=[];
 const me='00000000-0000-4000-8000-000000000001',owner='00000000-0000-4000-8000-000000000002',tool='00000000-0000-4000-8000-000000000003';
 const jwt=Buffer.from(JSON.stringify({alg:'HS256',typ:'JWT'})).toString('base64url')+'.'+Buffer.from(JSON.stringify({sub:me,role:'authenticated',aal:'aal1',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url')+'.'+Buffer.from('signature').toString('base64url');
 const identity={id:me,email:'tester@example.net',app_metadata:{provider:'email',providers:['email']},user_metadata:{display_name:'Test Neighbor'},aud:'authenticated',created_at:new Date().toISOString(),email_confirmed_at:new Date().toISOString()};
 const profile={id:me,display_name:'Test Neighbor',neighborhood:'',city:'',state:'',bio:'',stripe_onboarding_complete:false};
-const listings=[{id:'00000000-0000-4000-8000-000000000004',owner_id:me,title:'My ladder',category:'Home & DIY',description:'A ladder',condition:'Good',rate_cents:800,deposit_cents:2000,available:true,owner:{display_name:'Test Neighbor',neighborhood:'Oak Grove',city:'Chicago',stripe_onboarding_complete:false}},{id:tool,owner_id:owner,title:'Cordless drill',category:'Power tools',description:'A drill',condition:'Good',rate_cents:1200,deposit_cents:5000,available:true,owner:{display_name:'Helpful Owner',neighborhood:'Oak Grove',city:'Chicago',stripe_onboarding_complete:false}}];
+const listings=[{photo_path:me+'/ladder.png',id:'00000000-0000-4000-8000-000000000004',owner_id:me,title:'My ladder',category:'Home & DIY',description:'A ladder',condition:'Good',rate_cents:800,deposit_cents:2000,available:true,owner:{display_name:'Test Neighbor',neighborhood:'Oak Grove',city:'Chicago',stripe_onboarding_complete:false}},{id:tool,owner_id:owner,title:'Cordless drill',category:'Power tools',description:'A drill',condition:'Good',rate_cents:1200,deposit_cents:5000,available:true,owner:{display_name:'Helpful Owner',neighborhood:'Oak Grove',city:'Chicago',stripe_onboarding_complete:false}}];
 const inbox=[],loans=[],ratings=[],wallet=[];let failMessage=true;const requests=[];let delayReputation=false,releaseReputation,markReputationStarted;const reputationStarted=new Promise(resolve=>markReputationStarted=resolve);const sockets=[];let pendingFactor=null;
 try{
- const page=await browser.newPage({viewport:{width:375,height:812},geolocation:{latitude:41.88123,longitude:-87.63123},permissions:['geolocation']});page.on('pageerror',e=>errors.push(e.message));page.on('websocket',socket=>sockets.push(socket.url()));
+ const page=await browser.newPage({viewport:{width:375,height:812},geolocation:{latitude:41.88123,longitude:-87.63123},permissions:['geolocation'],hasTouch:true});page.on('pageerror',e=>errors.push(e.message));page.on('websocket',socket=>sockets.push(socket.url()));
  await page.routeWebSocket(/^wss:\/\/(ilfpugydxlzmmxjfrmrv|zbbespojxxoheavodtqs)\.supabase\.co\//,socket=>socket.close());
  await page.route(/^https:\/\/(ilfpugydxlzmmxjfrmrv|zbbespojxxoheavodtqs)\.supabase\.co\//,async route=>{
   const url=new URL(route.request().url()),p=url.pathname,method=route.request().method();let data={};requests.push({path:p,method,body:route.request().postData()});
+  if(method==='GET'&&p.endsWith('/tool-photos/qa.png')){await route.fulfill({status:200,contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=','base64')});return;}
   if(p.endsWith('/auth/v1/signup'))data={user:identity,session:null};
   else if(p.endsWith('/auth/v1/token'))data={access_token:jwt,refresh_token:'mock-refresh',token_type:'bearer',expires_in:3600,expires_at:Math.floor(Date.now()/1000)+3600,user:identity};
   else if(p.endsWith('/auth/v1/user'))data=identity;
@@ -62,6 +63,24 @@ try{
  // Model an owner concurrence response; financial invariants are tested separately in live SQL.
  loans[0].status='complete';wallet.push({amount_cents:5000});await page.reload();await page.locator('[data-review]').click();await page.locator('#review-form [name=body]').fill('Great tool and helpful neighbor');await page.locator('#review-form button.primary').click();await page.locator('dialog[open]').waitFor({state:'hidden'});assert.equal(ratings.length,1);await page.getByRole('link',{name:'Explore',exact:true}).click();await page.locator('[data-tool]').click();await page.getByText('Great tool and helpful neighbor',{exact:true}).waitFor();console.log('PASS post-return review appears on tool detail');
  await page.getByRole('button',{name:'Profile',exact:true}).click();await page.getByText('$50.00',{exact:true}).waitFor();await page.locator('#start-payouts').click();await page.locator('#toast').filter({hasText:'qa-stripe'}).waitFor();console.log('PASS deposit credit display and readable Stripe service failure');
+ await page.getByRole('link',{name:'My garage',exact:true}).click();
+ for(const width of [375,1280]){
+  await page.setViewportSize({width,height:900});
+  const preview=page.getByRole('button',{name:'View listing details for My ladder',exact:true});
+  assert.equal(await preview.locator('img').evaluate(img=>getComputedStyle(img).objectFit),'contain');
+  assert.equal(await preview.locator('img').evaluate(img=>getComputedStyle(img).objectPosition),'50% 50%');
+  if(width===375)await preview.tap();else await preview.click();
+  await page.locator('#modal').getByRole('heading',{name:'My ladder',exact:true}).waitFor();
+  await page.getByRole('button',{name:'Zoom in',exact:true}).click();
+  assert.equal(await page.locator('#listing-photo-zoom').getAttribute('aria-pressed'),'true');
+  assert.equal(await page.locator('#listing-photo-viewport').evaluate(el=>el.scrollWidth>el.clientWidth),true);
+  await page.getByRole('button',{name:'Fit photo',exact:true}).click();
+  assert.equal(await page.locator('#listing-photo-zoom').getAttribute('aria-pressed'),'false');
+  await page.getByRole('button',{name:'Close listing details',exact:true}).click();
+  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+ }
+ await page.setViewportSize({width:375,height:812});
+ console.log('PASS centered full garage photo, one-tap/click details and zoom at mobile/desktop widths');
  await page.getByRole('link',{name:'My garage',exact:true}).click();loans.push({id:crypto.randomUUID(),owner_id:me,renter_id:owner,tool_id:listings[0].id,status:'review',deposit_cents:2000,owner_payout_cents:760,tool:{title:'My ladder'},assessment:{source:'manual',renterNote:'Returned clean'}});await page.reload();await page.locator('[data-approve]').click();await page.locator('[data-payout]').waitFor();await page.locator('[data-payout]').click();await page.getByRole('heading',{name:'Pending payouts'}).waitFor({state:'hidden'});console.log('PASS owner concurrence and pending-payout retry interface');
  await page.getByRole('link',{name:'My garage',exact:true}).click();await page.locator('[data-edit]').click();await page.locator('#lend-form [name=title]').fill('Updated ladder');await page.getByRole('button',{name:'Save changes',exact:true}).click();await page.locator('.tool-card h3',{hasText:'Updated ladder'}).waitFor();assert.equal(listings[0].title,'Updated ladder');console.log('PASS owner edits without uploading another photo');
  await page.locator('[data-remove]').click();await page.locator('#confirm-remove').click();await page.getByRole('heading',{name:'Your garage is empty'}).waitFor();assert.equal(listings[0].available,false);assert(listings[0].archived_at);console.log('PASS removal hides current listing and pauses availability');
@@ -69,6 +88,27 @@ try{
 
  await page.getByRole('button',{name:'List a tool',exact:true}).first().click();await page.locator('#tool-photo').setInputFiles(photo);await page.locator('#photo-preview:not(.hidden)').waitFor();
  await page.locator('#clean-photo').click();await page.locator('#ai-status').filter({hasText:'Could not separate'}).waitFor();
+ // A real local OCR worker reads the fixture. Block remote visual weights to verify the label fallback.
+ await page.route(/https:\/\/(tfhub.dev|storage.googleapis.com)\//,route=>route.abort());
+ const scanNetworkStart=requests.length;
+ const label={name:'label.png',mimeType:'image/png',buffer:await readFile(process.env.NG_LABEL_FIXTURE||'tests/fixtures/tool-label.png')};
+ await page.locator('#label-photo').setInputFiles(label);await page.locator('#identify-tool').click();
+ await page.locator('#scan-suggestion:not(.hidden)').waitFor({timeout:75000});
+ assert.equal(await page.locator('#lend-form [name=title]').inputValue(),'DEWALT Power drill');
+ assert.match(await page.locator('#lend-form [name=description]').inputValue(),/DCD771/);
+ assert.equal(await page.locator('#lend-form [name=condition]').inputValue(),'');
+ assert.equal(await page.locator('#lend-form [name=rate]').inputValue(),'');
+ assert.equal(await page.locator('#lend-form [name=deposit]').inputValue(),'');
+ await page.locator('#lend-form [name=description]').fill('My own description.');
+ await page.locator('#lend-form [name=category]').selectOption('Home & DIY');
+ await page.locator('#identify-tool').click();await page.getByRole('button',{name:'Use suggested description',exact:true}).waitFor({timeout:75000});
+ assert.equal(await page.locator('#lend-form [name=description]').inputValue(),'My own description.');
+ assert.equal(await page.locator('#lend-form [name=category]').inputValue(),'Home & DIY');
+ await page.getByRole('button',{name:'Use suggested description',exact:true}).click();
+ assert.match(await page.locator('#lend-form [name=description]').inputValue(),/DCD771/);
+ assert.equal(requests.slice(scanNetworkStart).some(r=>r.method==='POST'&&/\/storage\/v1\/object\/(tool-photos|return-photos)\//.test(r.path)),false,'identification does not upload scan photos');
+ assert.equal(requests.slice(scanNetworkStart).some(r=>r.path.endsWith('/functions/v1/identify-tool')),false,'identification does not call a remote AI function');
+ console.log('PASS real browser OCR, description/brand/model suggestions, manual edits preserved, explicit acceptance and no scan upload');
  for(const [name,value] of Object.entries({title:'New test sander',description:'A useful sander',condition:'Normal cosmetic wear',rate:'12',deposit:'75'}))await page.locator(`#lend-form [name=${name}]`).fill(value);
  await page.locator('#listing-location').click();await page.waitForFunction(()=>document.querySelector('[name=lat]').value==='41.88');assert.match(await page.locator('#profit-preview').innerText(),/11.40/);await page.getByRole('button',{name:'Publish listing',exact:true}).click();await page.getByRole('heading',{name:'New test sander',exact:true}).waitFor();assert.equal(listings.at(-1).approximate_lng,-87.63);assert(listings.at(-1).baseline_photo_path.startsWith(me+'/'));await page.getByRole('button',{name:'Tracking code for New test sander'}).click();await page.locator('dialog img.qr').waitFor();await page.locator('[data-close]').click();console.log('PASS photo fallback, new listing upload, rounded GPS, earnings and QR code');
  await page.getByRole('link',{name:'Explore',exact:true}).click();
