@@ -15,5 +15,11 @@ export async function applyRentalPayment(event:Stripe.Event){
  if(projectRef==='zbbespojxxoheavodtqs' && s.metadata?.project_ref!==projectRef)return;
  if(paid&&s.payment_status!=='paid')return;
  if(!s.metadata?.rental_id)return;
- checked(await adminClient().rpc('finish_payment',{p_event:event.id,p_type:event.type,p_session:s.id,p_rental:s.metadata.rental_id,p_paid:paid,p_amount:s.amount_total,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{id:event.id,type:event.type,session_id:s.id}}));
+ const admin=adminClient();
+ if(s.metadata.extension_id){
+  const extension=checked(await admin.from('rental_extensions').select('rental_id').eq('id',s.metadata.extension_id).single());
+  if(!extension||extension.rental_id!==s.metadata.rental_id||s.client_reference_id!==s.metadata.rental_id+':'+s.metadata.extension_id)throw new Error('Extension payment parent mismatch');
+ }else if(s.client_reference_id!==s.metadata.rental_id)throw new Error('Rental payment reference mismatch');
+ checked(await admin.rpc(s.metadata.extension_id?'finish_extension_payment':'finish_payment',{
+ p_event:event.id,p_type:event.type,p_session:s.id,...(s.metadata.extension_id?{p_extension:s.metadata.extension_id}:{p_rental:s.metadata.rental_id}),p_paid:paid,p_amount:s.amount_total,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{id:event.id,type:event.type,session_id:s.id}}));
 }
