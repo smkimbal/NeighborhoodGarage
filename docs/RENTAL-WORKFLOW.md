@@ -39,6 +39,46 @@ and GPS points are visible only to the booking participants. Discovery uses
 neighborhood-rounded coordinates. Currently rented tools remain searchable with
 an approximate return date, reserved dates and future booking requests.
 
+## Reservation price and return photos
+
+The length and price are calculated from the earliest pickup-window time to the
+latest return-window time. Time reserved before actual collection is billable.
+Partial days are prorated at the saved daily rate and rounded once to cents.
+There is no separate day-count selector. Changing an earlier date moves its
+later endpoint forward when needed, preserves the window width when possible,
+and keeps return after pickup. Each handoff window remains at most 24 hours.
+
+For example, at $24/day, a 36-hour reservation costs $36. If returned after
+10 hours 45 minutes from the reservation start, the rental fee is $10.75 and
+$25.25 returns as Tool Share Credits. This is separate from the deposit and is
+not an automatic card refund. The net platform fee is $0.54 and owner earnings
+are $10.21. Inspection time adds no rental charge.
+
+The backend freezes the reported return time. Receipt confirmation releases
+unused rental time independently from damage inspection; approval or the review
+deadline also settles it. Audited correction of an unconfirmed mistaken return
+clears that clock. A tool recorded as still with the renter cannot earn an early
+return refund. Completed historical settlements are not repriced.
+
+An unpaid approved booking can request a different duration and price, subject
+to the other participant's approval. Paid pickup/return windows can move together
+for the prepaid duration. After pickup, earlier return windows can be agreed;
+more reserved time requires an approved, paid extension. Extensions are prorated
+from the prior paid latest return time. Late verified extension payments refund
+unused hours and credit only additional time actually used, exactly once.
+
+A sub-$0.50 card payment is rejected before credits are debited or checkout is
+held. Credits can cover such a booking in full; otherwise use a longer booking.
+The renter stays in an actionable approved state.
+
+The return dialog has one visible condition-photo picker with a preview, plus a
+separate **Take condition photo** camera action. Camera capture produces JPEG,
+stops the stream afterward, and allows retakes. A denied/unavailable camera has
+an actionable gallery fallback. Large camera images are resized below the
+private storage limit. Unsupported phone formats explain how to take a photo
+in the app or choose a supported image. QR-photo reading is an optional separate
+button; it does not replace condition evidence.
+
 ## Actionable exceptions
 
 | Situation | Next action |
@@ -60,8 +100,8 @@ The five-minute `ng-rental-deadlines` cron sweep also runs without either user
 opening the app. Pending extension payments never delay this deposit deadline. The separate
 `ng-rental-reconciliation` job verifies Stripe every five minutes, expires abandoned
 open checkouts and safely releases their held credits. Uncertain asynchronous
-payments remain pending until verified. A late paid extension credits only its
-additional net earnings once; it cannot reopen a settled deposit or calendar.
+payments remain pending until verified. A late paid extension refunds unused time and credits only its
+additional earned rental amount once; it cannot reopen a settled deposit or calendar.
 Flagging a review records it for operator follow-up; it does not promise a staffed
 support response. Insurance is not activated in this prototype.
 
