@@ -77,3 +77,5 @@
 /* Constrain intrinsic photo dimensions so previews crop from the center. */
 .tool-image,.detail-image,.booking-photo{position:relative;overflow:hidden}
 .tool-image img,.detail-image img,.booking-photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center}
+
+#days{display:block;line-height:1.5} [data-window-notice]:empty{display:none} #return-form fieldset{display:grid;gap:12px} #return-condition-preview,#return-camera{width:100%;object-fit:contain}
