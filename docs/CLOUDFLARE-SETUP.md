@@ -65,9 +65,10 @@ configuration. Complete the following checks before accepting customers:
 - Production schema and Edge Functions are deployed.
 - Auth Site URL points to https://neighborhoodgarage.net/; verify signup and reset
   email delivery with an actual inbox.
-- Stripe stays in sandbox. Copy the signing secret for production endpoint
-  we_1ULkQ8RsHH5z9atPufFnwB0d into production Supabase STRIPE_WEBHOOK_SECRET.
-  Confirm a signed event reaches stripe-webhook successfully.
+- Stripe stays in sandbox. Production endpoint we_1UMasLRsHH5z9atPyjeqkeJQ
+  uses the production Vault signing secret provisioned on October 3. The Edge
+  STRIPE_WEBHOOK_SECRET remains a supported override. Signed probes and a real
+  checkout-expiration delivery have passed; see VERIFICATION-2026-10-03.md.
 - See VERIFICATION-2026-10-01.md for tested payments and outstanding verification.
 
 ## Domain and future releases
@@ -78,7 +79,7 @@ The production backend permits this domain, not arbitrary workers.dev previews.
 Do not configure this domain on GitHub Pages.
 
 Cloudflare builds and hosts the application. GitHub holds source only for this
-production deployment. Keep neighborhood-garage-zip-2026-09-28 and its GitHub Pages
+production deployment. Keep neighborhood-garage-test and its GitHub Pages
 sandbox active. Merge reviewed changes into production; Cloudflare automatically
 builds and deploys that branch. There is no need to merge production into main.
 Use Cloudflare deployment rollback for a bad frontend release; database changes
@@ -89,8 +90,8 @@ need a separate recovery plan.
 If creating a Pages project instead, connect the production branch, use the same
 build command/environment, set output directory dist-production, and omit a deploy
 command. Do not combine those Pages settings with the existing Workers build.
-The release:prepare/release:publish scripts are the older Pages Direct Upload
-alternative and are not used by this Worker's automated deployment.
+The release:prepare/release:publish scripts publish exact reviewed assets to the
+same Worker and are an optional manual release path.
 
 References:
 - https://developers.cloudflare.com/workers/ci-cd/builds/build-image/
