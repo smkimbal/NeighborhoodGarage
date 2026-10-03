@@ -36,6 +36,13 @@ export function checkedUrl(raw:string){
  return url.toString();
 }
 export function checked<T>(result:{data:T,error:unknown}):T {if(result.error)throw result.error;return result.data;}
+export function itemCode(raw:unknown){
+ const value=String(raw||'').trim();
+ if(/^NG[0-9A-F]{8}$/i.test(value))return value.toUpperCase();
+ if(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value))return value.toLowerCase();
+ try{const url=new URL(checkedUrl(value)),match=url.hash.match(/^#\/handoff\/([0-9a-f-]{36})$/i);if(match)return match[1].toLowerCase();}catch{}
+ throw new HttpError('Scan this item’s Neighborhood Garage QR link or enter its tracking code.');
+}
 export function endpoint(handler:(req:Request)=>Promise<unknown>){return async(req:Request)=>{
  const origin=req.headers.get('Origin')||'';
  const headers:Record<string,string>={'Content-Type':'application/json','Vary':'Origin','Access-Control-Allow-Headers':'authorization, x-client-info, apikey, content-type','Access-Control-Allow-Methods':'POST, OPTIONS'};
