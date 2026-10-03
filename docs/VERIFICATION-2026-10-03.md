@@ -5,7 +5,7 @@ were integrated following approval of the consolidated 15-item review.
 
 ## Verified locally
 
-- All 59 unit/database checks pass on Node 22.23.3 and Node 24.19.0.
+- All 60 unit/database checks pass on Node 22.23.3 and Node 24.19.0.
 - All 11 Edge Function entrypoints pass Deno type checks.
 - Production build and pinned Wrangler dry run pass; only dist-production is uploaded.
 - The existing browser walkthrough passes signup/sign-in, optional MFA recovery,
@@ -35,7 +35,8 @@ were integrated following approval of the consolidated 15-item review.
 - PostgreSQL checks exact fractional refunds, adjusted owner/platform earnings,
   independent deposit inspection, frozen return time, duplicate settlement,
   physical corrections, saved-rate extensions, late partial extension payment,
-  safe sub-minimum card checkout failure and denied direct financial access.
+  safe sub-minimum card checkout failure, no late-return refunds for old
+  day-rounded bookings and denied direct financial access.
 
 ## Verified against the production backend
 
@@ -45,7 +46,9 @@ against the deployed production functions verified reservation pricing,
 credit checkout, return photo ownership, a $15.75 fractional rental refund,
 inspection hold, duplicate approval, $50 deposit release, $10.21 net owner
 earnings and denied client refund privileges. All test writes were rolled back;
-the existing six rental records were preserved.
+the existing six rental records were preserved. The additional guard migration is
+20261003233422_rental_refund_paid_deadline_guard.sql; a second rolled-back
+production check confirmed that an old whole-day price cannot refund a late return.
 
 
 - Applied additive inventory/reconciliation migrations with connector-assigned
