@@ -1,7 +1,7 @@
 name: Deploy GitHub Pages
 on:
   push:
-    branches: [neighborhood-garage-zip-2026-09-28]
+    branches: [neighborhood-garage-test]
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
+    if: github.ref == 'refs/heads/neighborhood-garage-test'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,7 +26,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - run: node tests/walkthrough.browser.mjs
   deploy:
-    if: github.ref == 'refs/heads/neighborhood-garage-zip-2026-09-28'
+    if: github.ref == 'refs/heads/neighborhood-garage-test'
     needs: test
     runs-on: ubuntu-latest
     environment:

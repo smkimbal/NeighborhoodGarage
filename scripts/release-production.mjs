@@ -25,12 +25,13 @@ async function inventory(dir) {
 if(action==='prepare') {
   run('npm',['test']);
   run('npm',['run','check:edge']);
-  run('node',['scripts/build.mjs'],{...process.env,NG_DEPLOY_TARGET:'production'});
-  await writeFile('production-release.json',JSON.stringify({site:'https://neighborhoodgarage.net/',createdAt:new Date().toISOString(),files:await inventory('dist-production')},null,2));
+  run('npm',['run','build:cloudflare']);
+  run('npm',['run','test:browser'],{...process.env,NG_TEST_DIST:'dist-production'});
+  await writeFile('production-release.json',JSON.stringify({site:'https://neighborhoodgarage.net/',configHash:createHash('sha256').update(await readFile('wrangler.jsonc')).digest('hex'),createdAt:new Date().toISOString(),files:await inventory('dist-production')},null,2));
   console.log('Production artifact ready for review. Run release:publish to upload this exact artifact.');
 } else if(action==='publish') {
   if(!process.env.CLOUDFLARE_ACCOUNT_ID || !process.env.CLOUDFLARE_API_TOKEN) throw new Error('Cloudflare account ID and scoped API token are required in the runner environment.');
   const manifest=JSON.parse(await readFile('production-release.json','utf8'));
-  if(manifest.site!=='https://neighborhoodgarage.net/' || JSON.stringify(manifest.files)!==JSON.stringify(await inventory('dist-production'))) throw new Error('Release artifact changed. Prepare and review again.');
-  run('wrangler',['pages','deploy','dist-production','--project-name=neighborhood-garage-production','--branch=production']);
+  if(manifest.site!=='https://neighborhoodgarage.net/' || manifest.configHash!==createHash('sha256').update(await readFile('wrangler.jsonc')).digest('hex') || JSON.stringify(manifest.files)!==JSON.stringify(await inventory('dist-production'))) throw new Error('Release artifact changed. Prepare and review again.');
+  run('npm',['run','deploy']);
 } else throw new Error('Use prepare or publish.');

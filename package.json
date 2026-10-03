@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "npm run build && python3 -m http.server 5173 --directory dist",
     "build": "node scripts/build.mjs",
-    "test": "node --check src/app.js && node --check src/supabase.js && node --test tests/*.test.mjs",
+    "test": "node --check src/app.js && node --check src/rental-workflow.js && node --check src/supabase.js && node --test tests/*.test.mjs",
+    "test:browser": "node tests/walkthrough.browser.mjs && node tests/rental-workflow.browser.mjs",
     "check:edge": "deno check supabase/functions/*/index.ts",
     "release:prepare": "node scripts/release-production.mjs prepare",
     "release:publish": "node scripts/release-production.mjs publish",
@@ -28,6 +29,7 @@
     "tesseract.js": "7.0.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@stripe/sync-engine": "1.0.32",
     "deno": "2.6.8",
     "esbuild": "0.25.12",
