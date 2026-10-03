@@ -32,7 +32,7 @@ jobs:
         if: matrix.node == 22
         env:
           NG_TEST_DIST: dist-production
-        run: node tests/walkthrough.browser.mjs
+        run: npm run test:browser
       - name: Validate Cloudflare asset packaging without deploying
         if: matrix.node == 22
         run: npm run deploy -- --dry-run
