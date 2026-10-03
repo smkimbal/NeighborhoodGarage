@@ -2,7 +2,7 @@ import { supabase } from './supabase.js';
 import { money,quote,esc,distanceMiles } from './core.js';
 import {invokeFunction,badgesFor,featuredBadge,photoExtension} from './services.js';
 import L from 'leaflet';
-import QRCode from 'qrcode';
+import {createRentalInterface,activeStatuses,activeBooking,availabilityLabel} from './rental-workflow.js';
 import {classifyTool,removePhotoBackground} from './local-vision.js';
 import {applySuggestionToDraft} from './tool-identification.js';
 import 'leaflet/dist/leaflet.css';
@@ -20,8 +20,9 @@ const $=s=>document.querySelector(s);
 const app=$('#app');
 const modal=$('#modal');
 const toastEl=$('#toast');
-let session=null,user=null,profile=null,tools=[],rentals=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null,passwordRecovery=false;
+let session=null,user=null,profile=null,tools=[],rentals=[],extensions=[],rentalEvents=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null,passwordRecovery=false;
 const categories=['Power tools','Outdoor','Home & DIY','Garden','Automotive','Other'];
+const bookingUI=createRentalInterface({supabase,invoke,state:()=>({user,tools,rentals,extensions,events:rentalEvents,reviews,credits}),route:()=>route,baseUrl:authRedirectUrl,nav,refresh,toast,showModal,closeModal,setBusy,showListingDetails,reviewDialog,getLocation,modal,stopCamera,setCamera:stream=>{cameraStream=stream;}});
 
 function toast(msg){toastEl.textContent=msg;toastEl.hidden=false;clearTimeout(toast._t);toast._t=setTimeout(()=>toastEl.hidden=true,4200)}
 function nav(path){location.hash=path.startsWith('#')?path:'#'+path}
@@ -38,14 +39,17 @@ function getPendingMfaId(){try{return pendingMfaKey()?localStorage.getItem(pendi
 function setPendingMfaId(id){try{if(pendingMfaKey())localStorage.setItem(pendingMfaKey(),id)}catch{}}
 function clearPendingMfaId(){try{if(pendingMfaKey())localStorage.removeItem(pendingMfaKey())}catch{}}
 
+function rememberHandoff(){const match=location.hash.match(/^#\/handoff\/([0-9a-f-]{36})$/i);try{if(match)sessionStorage.setItem('ng-handoff',match[0]);}catch{}}
+function restoreHandoff(){try{const saved=sessionStorage.getItem('ng-handoff');if(user&&/^#\/handoff\/[0-9a-f-]{36}$/i.test(saved||'')&&(!location.hash||location.hash==='#/'||location.hash.includes('access_token='))){history.replaceState(null,'',location.pathname+saved);}if(user)sessionStorage.removeItem('ng-handoff');}catch{}}
 async function bootstrap(){
+  rememberHandoff();
   const callbackError=new URLSearchParams(location.hash.slice(1)).get('error_description')||new URLSearchParams(location.search).get('error_description');
   if(callbackError){authNotice=`Confirmation link could not be used: ${callbackError}. Sign in or request a new link.`;history.replaceState(null,'',location.pathname+'#/');}
   const {data}=await supabase.auth.getSession();
-  session=data.session;user=session?.user||null;
+  session=data.session;user=session?.user||null;restoreHandoff();
   supabase.auth.onAuthStateChange((event,s)=>{
     const previous=user?.id;
-    session=s;user=s?.user||null;
+    session=s;user=s?.user||null;restoreHandoff();route=(location.hash||'#/').slice(1)||'/';
     if(previous===user?.id&&['SIGNED_IN','TOKEN_REFRESHED','INITIAL_SESSION'].includes(event))return;
     if(event==='PASSWORD_RECOVERY')passwordRecovery=true;
     if(event==='SIGNED_OUT')passwordRecovery=false;
@@ -61,7 +65,7 @@ async function refresh({quiet=false}={}){
   if(!quiet)foregroundRequests++;
   const refreshId=++refreshSequence,accountId=user?.id;
   const isCurrent=()=>refreshId===refreshSequence&&user?.id===accountId;
-  if(!user){closeModal();chatDrafts.clear();nearbyLocation=null;profile=null;tools=[];rentals=[];messages=[];reviews=[];credits=0;reputationById.clear();unsubscribeRealtime();render();if(!quiet)foregroundRequests--;return;}
+  if(!user){rememberHandoff();closeModal();chatDrafts.clear();nearbyLocation=null;profile=null;tools=[];rentals=[];extensions=[];rentalEvents=[];messages=[];reviews=[];credits=0;reputationById.clear();unsubscribeRealtime();render();if(!quiet)foregroundRequests--;return;}
   try{
     const factors=await supabase.auth.mfa.listFactors();
     if(factors.error)throw factors.error;
@@ -75,25 +79,38 @@ async function refresh({quiet=false}={}){
       renderPasswordRecovery();return;
     }
     if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
-    const [p,t,r,m,v,c]=await Promise.all([
+    const [p,t,r,m,v,c,x,h]=await Promise.all([
       supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',accountId).single(),
       supabase.from('tools').select('*, owner:profiles!tools_owner_id_fkey(display_name,neighborhood,city,stripe_onboarding_complete)').order('created_at',{ascending:false}),
       supabase.from('rentals').select('*, tool:tools(id,title,tracking_code,photo_path,condition), renter:profiles!rentals_renter_id_fkey(display_name), owner:profiles!rentals_owner_id_fkey(display_name)').order('created_at',{ascending:false}),
       supabase.from('messages').select('*, sender:profiles!messages_sender_id_fkey(display_name), recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true}),
       supabase.from('reviews').select('*,author:profiles!reviews_author_id_fkey(display_name)').order('created_at',{ascending:false}),
-      supabase.from('credit_ledger').select('amount_cents')
+      supabase.from('credit_ledger').select('amount_cents'),
+      supabase.from('rental_extensions').select('*').order('created_at',{ascending:false}),
+      supabase.from('rental_events').select('*').order('created_at',{ascending:true})
     ]);
-    for(const x of [p,t,r,m,v,c]) if(x.error) throw x.error;
+    for(const result of [p,t,r,m,v,c,x,h]) if(result.error) throw result.error;
     if(!isCurrent())return;
-    const nextTools=t.data||[],nextRentals=r.data||[],nextMessages=m.data||[];
+    const nextTools=t.data||[],nextMessages=m.data||[];
+    let nextRentals=r.data||[],nextCredits=c.data||[],nextExtensions=x.data||[],nextEvents=h.data||[],processed=0;
+    for(let i=0;i<nextTools.length;i+=100){
+      const response=await invoke('rental-booking',{action:'availability',toolIds:nextTools.slice(i,i+100).map(t=>t.id)});
+      processed+=response.processed||0;
+      for(const a of response.availability||[]){const tool=nextTools.find(t=>t.id===a.tool_id);if(tool)tool.availability=a;}
+    }
+    if(processed){
+      const [fresh,ledger,exts,events]=await Promise.all([supabase.from('rentals').select('*, tool:tools(id,title,tracking_code,photo_path,condition), renter:profiles!rentals_renter_id_fkey(display_name), owner:profiles!rentals_owner_id_fkey(display_name)').order('created_at',{ascending:false}),supabase.from('credit_ledger').select('amount_cents'),supabase.from('rental_extensions').select('*').order('created_at',{ascending:false}),supabase.from('rental_events').select('*').order('created_at',{ascending:true})]);
+      for(const result of [fresh,ledger,exts,events])if(result.error)throw result.error;
+      nextRentals=fresh.data||[];nextCredits=ledger.data||[];nextExtensions=exts.data||[];nextEvents=events.data||[];
+    }
     await hydratePhotos(nextTools,nextRentals);
     if(!isCurrent())return;
     const nextReputation=await hydrateReputation(accountId,nextTools,nextMessages);
     if(!isCurrent())return;
-    profile=p.data;tools=nextTools;rentals=nextRentals;messages=nextMessages;reviews=v.data||[];credits=(c.data||[]).reduce((s,x)=>s+Number(x.amount_cents||0),0);
+    profile=p.data;tools=nextTools;rentals=nextRentals;extensions=nextExtensions;rentalEvents=nextEvents;messages=nextMessages;reviews=v.data||[];credits=nextCredits.reduce((s,x)=>s+Number(x.amount_cents||0),0);
     reputationById.clear();for(const [id,metrics] of nextReputation)reputationById.set(id,metrics);
     subscribeRealtime();
-    if(!quiet||['/garage','/rentals'].includes(route.split('?')[0]))render();
+    if(!quiet||['/garage','/rentals'].includes(route.split('?')[0])||route.startsWith('/rental/'))render();
   }catch(e){if(!isCurrent()||quiet)return;app.innerHTML=`<main class="shell"><div class="alert error"><h2>Could not load your account</h2><p>${esc(errorText(e))}</p><button id="retry-account">Try again</button> <button id="signout-error">Sign out</button></div></main>`;$('#retry-account').onclick=()=>refresh();$('#signout-error').onclick=()=>supabase.auth.signOut();const retryDelete=document.createElement('button');retryDelete.textContent='Finish account deletion';retryDelete.onclick=deleteAccountDialog;app.querySelector('.alert').append(retryDelete)}finally{if(!quiet)foregroundRequests--;}
 }
 
@@ -117,6 +134,8 @@ async function hydratePhotos(loadedTools,loadedRentals){
     t.photo_url=data?.signedUrl||'';
   }));
   await Promise.all(loadedRentals.map(async r=>{
+    if(r.tool)r.tool.photo_url=loadedTools.find(t=>t.id===r.tool.id)?.photo_url||'';
+    r.damage_photo_urls=await Promise.all((r.damage_photos||[]).map(async path=>{const result=await supabase.storage.from('return-photos').createSignedUrl(path,1800);return result.data?.signedUrl||'';}));
     if(r.baseline_photo_path){const result=await supabase.storage.from('tool-photos').createSignedUrl(r.baseline_photo_path,1800);r.baseline_photo_url=result.data?.signedUrl||'';}
     if(!r.return_photo_path)return;
     const {data}=await supabase.storage.from('return-photos').createSignedUrl(r.return_photo_path,1800);
@@ -128,7 +147,7 @@ function subscribeRealtime(){
   if(realtimeChannel)return;
   const accountId=user.id;
   realtimeChannel=supabase.channel('ng-marketplace').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},async()=>{const result=await supabase.from('messages').select('*,sender:profiles!messages_sender_id_fkey(display_name),recipient:profiles!messages_recipient_id_fkey(display_name)').order('created_at',{ascending:true});if(!result.error&&user?.id===accountId){messages=result.data||[];if(route.startsWith('/messages')&&!modal.open){renderMessages($('#content'));}}});
-  for(const table of ['rentals','tools','reviews'])realtimeChannel.on('postgres_changes',{event:'*',schema:'public',table},payload=>{if(table==='rentals'&&payload.new?.owner_id===user?.id&&payload.new?.status==='review')toast('A tool was returned. Open My garage to review its condition.');clearTimeout(marketplaceTimer);marketplaceTimer=setTimeout(()=>refresh({quiet:true}),350);});
+  for(const table of ['rentals','tools','reviews','rental_extensions','rental_events'])realtimeChannel.on('postgres_changes',{event:'*',schema:'public',table},payload=>{if(table==='rentals'&&payload.new?.owner_id===user?.id&&payload.new?.status==='review')toast('A tool was returned. Open My garage to review its condition.');clearTimeout(marketplaceTimer);marketplaceTimer=setTimeout(()=>refresh({quiet:true}),350);});
   realtimeChannel.subscribe();
 }
 function unsubscribeRealtime(){clearTimeout(marketplaceTimer);if(realtimeChannel){supabase.removeChannel(realtimeChannel);realtimeChannel=null}}
@@ -144,7 +163,9 @@ function render(){
   else if(path.startsWith('/tool/'))renderTool(content,path.split('/')[2]);
   else if(path==='/lend')renderLend(content);
   else if(path.startsWith('/edit/')){const t=tools.find(x=>x.id===path.split('/')[2]&&x.owner_id===user.id&&!x.archived_at);if(!t||toolInUse(t.id)){content.innerHTML='<div class="empty"><h2>Listing cannot be edited</h2><p>Finish any active rental first.</p><a href="#/garage">Back to My garage</a></div>';}else renderLend(content,t);}
-  else if(path==='/rentals')renderRentals(content);
+  else if(path==='/rentals')bookingUI.renderRentals(content);
+  else if(path.startsWith('/rental/'))bookingUI.renderRental(content,path.split('/')[2]);
+  else if(path.startsWith('/handoff/'))bookingUI.renderHandoff(content,path.split('/')[2]);
   else if(path==='/garage')renderGarage(content);
   else if(path==='/messages')renderMessages(content);
   else if(path==='/profile')renderProfile(content);
@@ -153,11 +174,12 @@ function render(){
   bindGlobal();
   const params=new URLSearchParams(route.split('?')[1]||'');
   if(['return','refresh'].includes(params.get('stripe'))){const action=params.get('stripe');route='/profile';history.replaceState(null,'',location.href.split('#')[0]+'#/profile');setTimeout(()=>action==='return'?refreshStripeStatus():startStripeOnboarding(),0);}
-  if(params.get('payment')==='cancel'&&params.get('rental')){
-    const rentalId=params.get('rental'),cleanPath=route.split('?')[0];
-    route=cleanPath;history.replaceState(null,'',location.href.split('#')[0]+'#'+cleanPath);
-    setTimeout(()=>cancelPendingRental(rentalId),0);
+  if(params.get('payment')==='success'){
+    toast('Checking Stripe payment confirmation.');const id=path.split('/')[2],extensionId=params.get('extension');
+    if(id)setTimeout(()=>rentalAction(id,extensionId?'sync-extension':'sync-payment',extensionId?{extensionId}:{}).catch(e=>toast(errorText(e))),0);
+    route=path;history.replaceState(null,'',location.href.split('#')[0]+'#'+path);
   }
+  if(params.get('payment')==='cancel'){toast('Checkout is still open. Resume, check its status, or explicitly cancel this booking.');route=path;history.replaceState(null,'',location.href.split('#')[0]+'#'+path);}
 }
 
 function layout(){
@@ -166,6 +188,7 @@ function layout(){
 function bindGlobal(){document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go))}
 
 function renderAuth(){
+  if(route.startsWith('/handoff/')&&!authNotice)authNotice='Sign in to open this item’s pickup or return confirmation. Your item link will be kept.';
   app.innerHTML=`<main class="auth-page"><section class="auth-hero"><div class="eyebrow">Neighbors helping neighbors</div><h1>The tool you need may already be next door.</h1><p>Borrow useful tools nearby, lend what you own, and keep deposits moving as Tool Share Credits.</p><div class="trust-row"><span>Secure accounts</span><span>Private uploads</span><span>Protected checkout</span></div></section><section class="auth-card"><div class="brand auth-brand"><img src="./favicon.svg" alt=""><span>Neighborhood <b>Garage</b></span></div><div class="tabs"><button class="active" data-auth-tab="signin">Sign in</button><button data-auth-tab="signup">Create account</button></div><p id="auth-notice" class="panel-lite ${authNotice?'':'hidden'}" role="status">${esc(authNotice)}</p><button id="resend-confirmation" class="linkish ${pendingEmail?'':'hidden'}" type="button">Resend confirmation email</button><form id="signin" class="stack"><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" minlength="8" required></label><button class="primary">Sign in</button><button type="button" class="linkish" id="reset-password">Forgot password?</button></form><form id="signup" class="stack hidden"><label>Your name<input name="displayName" maxlength="60" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="new-password" minlength="12" required></label><p class="fine">Use at least 12 characters. You’ll verify your email before using the marketplace.</p><button class="primary">Create account</button></form></section></main>`;
   const tabs=[...document.querySelectorAll('[data-auth-tab]')];
   tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.toggle('active',x===b));$('#signin').classList.toggle('hidden',b.dataset.authTab!=='signin');$('#signup').classList.toggle('hidden',b.dataset.authTab!=='signup')});
@@ -182,7 +205,7 @@ function renderOnboarding(){
 }
 
 function toolCard(t){
-  return `<article class="tool-card"><button data-tool="${t.id}" class="card-hit"><div class="tool-image">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}<div class="badge">${t.available?'Available':'Reserved'}</div></div><div class="card-copy"><div class="meta">${esc(t.category)} · ${t.distance!=null?t.distance.toFixed(1)+' mi away':esc(t.owner?.neighborhood||'Neighborhood pickup')}</div><h3>${esc(t.title)}</h3><div class="row"><strong>${money(t.rate_cents)} <small>/ day</small></strong><span>${esc(t.owner?.display_name||'Neighbor')}</span></div>${badgeTag(t.owner_id)}</div></button></article>`;
+  return `<article class="tool-card"><button data-tool="${t.id}" class="card-hit"><div class="tool-image">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}<div class="badge">${esc(availabilityLabel(t))}</div></div><div class="card-copy"><div class="meta">${esc(t.category)} · ${t.distance!=null?t.distance.toFixed(1)+' mi away':esc(t.owner?.neighborhood||'Neighborhood pickup')}</div><h3>${esc(t.title)}</h3><div class="row"><strong>${money(t.rate_cents)} <small>/ day</small></strong><span>${esc(t.owner?.display_name||'Neighbor')}</span></div>${badgeTag(t.owner_id)}</div></button></article>`;
 }
 function renderExplore(root){
   root.innerHTML=`<section class="hero"><div><div class="eyebrow">Your neighborhood tool shelf</div><h1>Big plans. Neighborly prices.</h1><p>Find what you need nearby instead of buying it for one project.</p></div><button class="primary" data-go="/lend">List something you own</button></section><section class="filterbar"><label>Find a tool<input id="search" placeholder="Drills, ladders, garden tools…"></label><label>Category<select id="category"><option value="">All categories</option>${categories.map(c=>`<option>${c}</option>`).join('')}</select></label></section><section class="discovery-bar"><button id="locate">Use my location</button><label>Distance<select id="radius"><option value="">Any distance</option><option value="2">Within 2 miles</option><option value="5">Within 5 miles</option><option value="10">Within 10 miles</option><option value="25">Within 25 miles</option></select></label><div class="tabs view-tabs"><button id="list-view" class="active" aria-pressed="true">List</button><button id="map-view" aria-pressed="false">Map</button></div></section><p id="location-status" class="fine">${nearbyLocation?'Distances are approximate.':'Use your location to sort nearby tools. You can also browse the map without sharing your location.'}</p><div id="neighborhood-map" class="neighborhood-map hidden" aria-label="Map of approximate tool locations"></div><p id="map-status" class="fine hidden"></p><div id="catalog" class="grid"></div>`;
@@ -199,7 +222,7 @@ function renderExplore(root){
       L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:18,attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).on('tileerror',()=>{const status=$('#map-status');if(status)status.textContent='Map tiles could not load. Tool locations and the list remain available.';}).addTo(activeMap);
       located.forEach(t=>{
         const icon={'Power tools':'🔧','Outdoor':'🪚','Home & DIY':'🛠️','Garden':'🌱','Automotive':'🔩'}[t.category]||'🧰';
-        L.marker([t.approximate_lat,t.approximate_lng],{title:t.title,alt:t.title,icon:L.divIcon({className:'tool-map-marker',html:`<span aria-hidden="true">${icon}</span>`,iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-18]})}).addTo(activeMap).bindPopup(`<div class="tool-map-popup"><b>${esc(t.title)}</b><div>${esc(t.category)} · ${money(t.rate_cents)} / day</div><p>${esc(t.description.slice(0,100))}${t.description.length>100?'…':''}</p><small>${esc(t.owner?.display_name||'Neighbor')} · ${t.distance!=null?t.distance.toFixed(1)+' mi away':'Approximate location'}</small><a href="#/tool/${t.id}">View tool & reserve →</a></div>`);
+        L.marker([t.approximate_lat,t.approximate_lng],{title:t.title,alt:t.title,icon:L.divIcon({className:'tool-map-marker',html:`<span aria-hidden="true">${icon}</span>`,iconSize:[32,32],iconAnchor:[16,16],popupAnchor:[0,-18]})}).addTo(activeMap).bindPopup(`<div class="tool-map-popup"><b>${esc(t.title)}</b><div>${esc(t.category)} · ${money(t.rate_cents)} / day</div><p>${esc(t.description.slice(0,100))}${t.description.length>100?'…':''}</p><small>${esc(availabilityLabel(t))}</small><small>${esc(t.owner?.display_name||'Neighbor')} · ${t.distance!=null?t.distance.toFixed(1)+' mi away':'Approximate location'}</small><a href="#/tool/${t.id}">View tool & reserve →</a></div>`);
       });
       if(nearbyLocation)L.circleMarker([nearbyLocation.lat,nearbyLocation.lng],{radius:5,color:'#ffffff',weight:2,fillColor:'#287bea',fillOpacity:1,className:'my-location-dot'}).addTo(activeMap).bindPopup('You are here (only visible to you)');
       if(!nearbyLocation&&located.length>1)activeMap.fitBounds(located.map(t=>[t.approximate_lat,t.approximate_lng]),{padding:[35,35],maxZoom:13});
@@ -226,16 +249,12 @@ async function getLocation(){
  catch(err){if(err.code===1)throw locationError(err);try{result=await position({enableHighAccuracy:false,timeout:15000,maximumAge:60000});}catch(fallback){throw locationError(fallback);}}
  return {lat:result.coords.latitude,lng:result.coords.longitude};
 }
-function checkoutRequestId(id,days){const key=`ng-checkout:${user.id}:${id}:${days}`;let value=sessionStorage.getItem(key);const existing=rentals.find(r=>r.checkout_request_id===value);if(!value||existing&&existing.status!=='pending_payment'){value=crypto.randomUUID();sessionStorage.setItem(key,value);}return value;}
 function reviewCards(items){return items.length?items.map(v=>`<article class="review-card"><strong aria-label="${v.rating} out of 5 stars">${'★'.repeat(v.rating)}${'☆'.repeat(5-v.rating)}</strong><p>${esc(v.body||'A neighbor left a rating.')}</p><small>${esc(v.author?.display_name||'Verified renter')} · ${new Date(v.created_at).toLocaleDateString()}</small></article>`).join(''):'<p class="muted">No reviews yet. Reviews come from completed rentals.</p>';}
 
 function renderTool(root,id){
-  const t=tools.find(x=>x.id===id);if(!t){root.innerHTML='<div class="empty"><h2>Tool not found</h2></div>';return}
-  const q=quote(t.rate_cents,t.deposit_cents,1,credits);
-  root.innerHTML=`<a class="back" href="#/">← Explore</a><section class="detail-grid"><div><div class="detail-image">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}</div><div class="panel"><div class="eyebrow">${esc(t.category)}</div><h1>${esc(t.title)}</h1><p>${esc(t.description)}</p><div class="owner-line"><span class="mini-avatar">${esc(initials(t.owner?.display_name))}</span><a href="#/neighbor/${t.owner_id}"><b>${esc(t.owner?.display_name||'Neighbor')}</b></a>${badgeTag(t.owner_id)}</div><hr><h3>Listed condition</h3><p>${esc(t.condition)}</p><h3>Neighbor reviews</h3>${reviewCards(reviews.filter(v=>v.tool_id===t.id))}</div></div><aside class="panel sticky"><h2>${money(t.rate_cents)} <small>/ day</small></h2><label>Rental length<select id="days">${Array.from({length:14},(_,i)=>`<option value="${i+1}">${i+1} day${i?'s':''}</option>`).join('')}</select></label><div id="quote"></div><button id="reserve" class="primary wide" ${!t.available?'disabled':''}>${t.available?'Reserve & checkout':'Unavailable'}</button><button class="wide" id="message-owner">Message owner</button><div class="deposit-note"><b>How your deposit works</b><p>The deposit covers potential damage while the tool is on loan. Normal wear is expected. After return photos and owner approval, your deposit becomes Tool Share Credits immediately for your next rental. It is not an automatic card refund.</p><p>Payments use Stripe sandbox during testing. Insurance coverage is not activated in this prototype.</p></div></aside></section>`;
-  const draw=()=>{const x=quote(t.rate_cents,t.deposit_cents,Number($('#days').value),credits);$('#quote').innerHTML=`<div class="summary"><div><span>Rental</span><b>${money(x.rental)}</b></div><div><span>Deposit</span><b>${money(x.deposit)}</b></div><div><span>Credits</span><b>−${money(x.creditsUsed)}</b></div><div class="total"><span>Due now</span><b>${money(x.due)}</b></div></div>`};draw();$('#days').onchange=draw;
-  $('#reserve').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{const base=location.href.split('#')[0];const data=await invoke('create-checkout',{toolId:t.id,days:Number($('#days').value),requestId:checkoutRequestId(t.id,Number($('#days').value)),successUrl:base+'#/rentals?payment=success',cancelUrl:base+'#/tool/'+t.id});if(data.checkoutUrl)location.assign(data.checkoutUrl);else{toast('Reserved using Tool Share Credits.');nav('/rentals');await refresh()}}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-  $('#message-owner').onclick=()=>nav('/messages?peer='+t.owner_id);
+  const t=tools.find(x=>x.id===id);if(!t){root.innerHTML='<div class="empty"><h2>Tool not found</h2></div>';return;}
+  root.innerHTML=`<a class="back" href="#/">← Explore</a><section class="detail-grid"><div><button type="button" class="detail-image detail-photo" aria-label="View full photo of ${esc(t.title)}">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}<span class="photo-hint">Tap to view full photo</span></button><div class="panel"><div class="eyebrow">${esc(t.category)}</div><h1>${esc(t.title)}</h1><p class="listing-description">${esc(t.description)}</p><div class="owner-line"><span class="mini-avatar">${esc(initials(t.owner?.display_name))}</span><a href="#/neighbor/${t.owner_id}"><b>${esc(t.owner?.display_name||'Neighbor')}</b></a>${badgeTag(t.owner_id)}</div><hr><h3>Listed condition</h3><p>${esc(t.condition)}</p><h3>Neighbor reviews</h3>${reviewCards(reviews.filter(v=>v.tool_id===t.id))}</div></div><aside id="reservation-panel" class="panel sticky"></aside></section>`;
+  root.querySelector('.detail-photo').onclick=()=>showListingDetails(t);bookingUI.mountRequest(root.querySelector('#reservation-panel'),t);
 }
 
 function renderLend(root,editing=null){
@@ -271,31 +290,15 @@ function renderLend(root,editing=null){
  form.onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(form),path=await upload();const lat=f.get('lat'),lng=f.get('lng');if(Boolean(lat)!==Boolean(lng))throw new Error('Enter both coordinates or leave both blank.');const payload={owner_id:user.id,title:f.get('title'),category:f.get('category'),description:f.get('description'),condition:f.get('condition'),rate_cents:Math.round(Number(f.get('rate'))*100),deposit_cents:Math.round(Number(f.get('deposit'))*100),photo_path:cleanedPath||(!form.elements.photo.files[0]&&editing?editing.photo_path:path),baseline_photo_path:path,approximate_lat:lat?Number(Number(lat).toFixed(2)):null,approximate_lng:lng?Number(Number(lng).toFixed(2)):null,available:editing?editing.available:true};const result=editing?await supabase.from('tools').update(payload).eq('id',editing.id).eq('owner_id',user.id).select('id').single():await supabase.from('tools').insert(payload).select('id').single();if(result.error)throw result.error;toast(editing?'Listing updated.':'Your tool is published.');nav('/garage');await refresh();}catch(err){toast(errorText(err));}finally{setBusy(b,false);}};
 }
 
-function statusLabel(s){return ({pending_payment:'Payment pending',reserved:'Ready for pickup',out:'Borrowed',review:'Awaiting owner review',complete:'Complete',disputed:'Under review',payment_failed:'Payment incomplete',cancelled:'Cancelled'})[s]||s}
-function renderRentals(root){
-  const mine=rentals.filter(r=>r.renter_id===user.id);
-  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Borrowed by you</div><h1>My rentals</h1></div></section><div class="stack-list">${mine.length?mine.map(r=>`<article class="rental-card"><div><span class="status">${esc(statusLabel(r.status))}</span><h3>${esc(r.tool?.title||'Tool')}</h3><p>${r.days} day${r.days===1?'':'s'} · ${money(r.rental_cents)} rental · ${money(r.deposit_cents)} deposit</p><p class="tracking">Tracking: <b>${esc(tracking(r.tool))}</b></p></div><div class="actions">${r.status==='pending_payment'?`<button class="primary" data-resume="${r.id}">Resume checkout</button><button data-sync-payment="${r.id}">Check payment status</button><button data-cancel-rental="${r.id}">Cancel checkout</button>`:''}${r.status==='reserved'?`<button class="primary" data-pickup="${r.id}">Confirm pickup</button>`:''}${r.status==='out'?`<button class="primary" data-return="${r.id}">Return tool</button>`:''}${r.status==='complete'&&!reviews.some(v=>v.rental_id===r.id)?`<button data-review="${r.id}">Leave review</button>`:''}</div></article>`).join(''):`<div class="empty"><h2>No rentals yet</h2><p>Browse the neighborhood and reserve your first tool.</p><button class="primary" data-go="/">Explore tools</button></div>`}</div>`;
-  document.querySelectorAll('[data-resume]').forEach(b=>b.onclick=()=>resumeCheckout(b.dataset.resume,b));
-  document.querySelectorAll('[data-sync-payment]').forEach(b=>b.onclick=()=>rentalAction(b.dataset.syncPayment,'sync-payment',{}).catch(e=>toast(errorText(e))));
-  document.querySelectorAll('[data-cancel-rental]').forEach(b=>b.onclick=()=>cancelPendingRental(b.dataset.cancelRental));
-  document.querySelectorAll('[data-pickup]').forEach(b=>b.onclick=()=>pickupDialog(b.dataset.pickup));
-  document.querySelectorAll('[data-return]').forEach(b=>b.onclick=()=>returnDialog(b.dataset.return));
-  document.querySelectorAll('[data-review]').forEach(b=>b.onclick=()=>reviewDialog(b.dataset.review));
-}
-
-function toolInUse(id){return rentals.some(r=>r.tool_id===id&&['pending_payment','reserved','out','review','disputed'].includes(r.status));}
+function toolInUse(id){return rentals.some(r=>r.tool_id===id&&activeBooking(r));}
 function renderGarage(root){
-  const showRemoved=new URLSearchParams(route.split('?')[1]||'').get('removed')==='1';
-  const owned=tools.filter(t=>t.owner_id===user.id&&Boolean(t.archived_at)===showRemoved),pending=rentals.filter(r=>r.owner_id===user.id&&r.status==='review');
-  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Tools you share</div><h1>My garage</h1></div><button class="primary" data-go="/lend">List a tool</button></section>${rentals.some(r=>r.owner_id===user.id&&r.payout_status==='pending')?`<section class="panel"><h2>Pending payouts</h2>${rentals.filter(r=>r.owner_id===user.id&&r.payout_status==='pending').map(r=>`<div class="row"><span>${esc(r.tool?.title)} · ${money(r.owner_payout_cents)}</span><button data-payout="${r.id}">Retry payout</button></div>`).join('')}</section>`:''}${pending.length?`<section><h2>Returns to review</h2><div class="stack-list">${pending.map(r=>`<article class="return-card"><div><span class="status">Owner review</span><h3>${esc(r.tool?.title||'Tool')}</h3><p>${esc(r.assessment?.note||'Review the return photo and condition before approving.')}</p><p class="fine">${esc(r.assessment?.source==='ai'?'AI-assisted assessment — owner approval required':'Manual owner review')} · ${esc(r.assessment?.assessment||'Comparison pending')}</p><p>Renter note: ${esc(r.assessment?.renterNote||'None')}</p>${r.baseline_photo_url?`<figure><img src="${esc(r.baseline_photo_url)}" alt="Original tool condition"><figcaption>Original condition</figcaption></figure>`:''}${r.return_photo_url?`<img src="${esc(r.return_photo_url)}" alt="Return condition">`:''}</div><div class="actions"><button class="primary" data-approve="${r.id}">Approve + return ${money(r.deposit_cents)} credits</button><button data-dispute="${r.id}">Hold for review</button></div></article>`).join('')}</div></section>`:''}<section><h2>${showRemoved?'Removed listings':'Your listings'}</h2><p><a href="#/garage${showRemoved?'':'?removed=1'}">${showRemoved?'Back to current listings':'View removed listings'}</a></p><div class="grid">${owned.length?owned.map(t=>`<article class="tool-card garage-card"><button type="button" class="card-hit garage-preview" data-listing-preview="${t.id}" aria-label="View listing details for ${esc(t.title)}"><div class="tool-image">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}<div class="badge">${t.archived_at?'Removed':toolInUse(t.id)?'In a rental':t.available?'Available':'Paused'}</div></div><div class="card-copy"><div class="meta">${esc(t.category)}</div><h3>${esc(t.title)}</h3><span class="fine">View photo and listing details →</span></div></button><div class="card-copy garage-actions"><p class="fine">You earn ${money(quote(t.rate_cents,0,1).owner)} / day after the 5% fee.</p><div class="row"><strong>${money(t.rate_cents)} / day</strong><button data-qr="${t.id}" aria-label="Tracking code for ${esc(t.title)}">QR code</button>${t.archived_at?`<button data-restore="${t.id}">Restore as paused</button>`:`<button data-toggle="${t.id}" data-value="${t.available?'0':'1'}" ${toolInUse(t.id)?'disabled':''}>${t.available?'Pause':'Activate'}</button><button data-edit="${t.id}" ${toolInUse(t.id)?'disabled':''}>Edit</button><button data-remove="${t.id}" ${toolInUse(t.id)?'disabled':''}>Remove</button>${toolInUse(t.id)?'<p class="fine">Changes unlock after the active rental is resolved.</p>':''}`}</div></div></article>`).join(''):`<div class="empty span-all"><h2>${showRemoved?'No removed listings':'Your garage is empty'}</h2><p>${showRemoved?'Removed tools will appear here.':'List a tool to start sharing.'}</p></div>`}</div></section>`;
+  const showRemoved=new URLSearchParams(route.split('?')[1]||'').get('removed')==='1',owned=tools.filter(t=>t.owner_id===user.id&&Boolean(t.archived_at)===showRemoved);
+  root.innerHTML=`<section class="page-head"><div><div class="eyebrow">Tools you share</div><h1>My garage</h1></div><button class="primary" data-go="/lend">List a tool</button></section><div id="owner-bookings"></div>${rentals.some(r=>r.owner_id===user.id&&r.payout_status==='pending')?`<section class="panel"><h2>Pending payouts</h2>${rentals.filter(r=>r.owner_id===user.id&&r.payout_status==='pending').map(r=>`<div class="row"><span>${esc(r.tool?.title)} · ${money(r.owner_payout_cents)}</span><button data-payout="${r.id}">Retry payout</button></div>`).join('')}</section>`:''}<section><h2>${showRemoved?'Removed listings':'Your listings'}</h2><p><a href="#/garage${showRemoved?'':'?removed=1'}">${showRemoved?'Back to current listings':'View removed listings'}</a></p><div class="grid">${owned.length?owned.map(t=>`<article class="tool-card garage-card"><button type="button" class="card-hit garage-preview" data-listing-preview="${t.id}" aria-label="View listing details for ${esc(t.title)}"><div class="tool-image">${t.photo_url?`<img src="${esc(t.photo_url)}" alt="${esc(t.title)}">`:'<span>🛠️</span>'}<div class="badge">${t.archived_at?'Removed':esc(availabilityLabel(t))}</div></div><div class="card-copy"><div class="meta">${esc(t.category)}</div><h3>${esc(t.title)}</h3><span class="fine">View photo and listing details →</span></div></button><div class="card-copy garage-actions"><p class="fine">You earn ${money(quote(t.rate_cents,0,1).owner)} / day after the 5% fee.</p><div class="row"><strong>${money(t.rate_cents)} / day</strong><button data-qr="${t.id}" aria-label="Tracking code for ${esc(t.title)}">QR code</button>${t.archived_at?`<button data-restore="${t.id}">Restore as paused</button>`:`<button data-toggle="${t.id}" data-value="${t.available?'0':'1'}" ${toolInUse(t.id)?'disabled':''}>${t.available?'Pause':'Activate'}</button><button data-edit="${t.id}" ${toolInUse(t.id)?'disabled':''}>Edit</button><button data-remove="${t.id}" ${toolInUse(t.id)?'disabled':''}>Remove</button>${toolInUse(t.id)?'<p class="fine">Listing changes unlock after active requests and rentals are resolved.</p>':''}`}</div></div></article>`).join(''):`<div class="empty span-all"><h2>${showRemoved?'No removed listings':'Your garage is empty'}</h2><p>${showRemoved?'Removed tools will appear here.':'List a tool to start sharing.'}</p></div>`}</div></section>`;
+  if(!showRemoved)bookingUI.renderOwnerDashboard(root.querySelector('#owner-bookings'));
   root.querySelectorAll('[data-listing-preview]').forEach(b=>b.onclick=()=>showListingDetails(tools.find(t=>t.id===b.dataset.listingPreview)));
-  root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>nav('/edit/'+b.dataset.edit));
-  root.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>removeListing(b.dataset.remove));
-  root.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>setListingArchive(b.dataset.restore,false,b));
-  document.querySelectorAll('[data-approve],[data-dispute]').forEach(b=>b.onclick=()=>rentalAction(b.dataset.approve||b.dataset.dispute,b.dataset.approve?'approve':'dispute',{}).catch(e=>toast(errorText(e))));
-  document.querySelectorAll('[data-payout]').forEach(b=>b.onclick=()=>rentalAction(b.dataset.payout,'retry-payout',{}).catch(e=>toast(errorText(e))));
-  document.querySelectorAll('[data-qr]').forEach(b=>b.onclick=()=>showTracking(tools.find(t=>t.id===b.dataset.qr)));
-  document.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=async()=>{const active=rentals.some(r=>r.tool_id===b.dataset.toggle&&['pending_payment','reserved','out','review','disputed'].includes(r.status));if(active){toast('This tool is currently in a rental and cannot be reactivated yet.');return}const {error}=await supabase.from('tools').update({available:b.dataset.value==='1'}).eq('id',b.dataset.toggle);if(error)toast(error.message);else await refresh()});
+  root.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>nav('/edit/'+b.dataset.edit));root.querySelectorAll('[data-remove]').forEach(b=>b.onclick=()=>removeListing(b.dataset.remove));root.querySelectorAll('[data-restore]').forEach(b=>b.onclick=()=>setListingArchive(b.dataset.restore,false,b));
+  root.querySelectorAll('[data-payout]').forEach(b=>b.onclick=()=>rentalAction(b.dataset.payout,'retry-payout',{}).catch(e=>toast(errorText(e))));root.querySelectorAll('[data-qr]').forEach(b=>b.onclick=()=>bookingUI.showTracking(tools.find(t=>t.id===b.dataset.qr)));
+  root.querySelectorAll('[data-toggle]').forEach(b=>b.onclick=async()=>{if(toolInUse(b.dataset.toggle)){toast('Resolve active requests and rentals before changing this listing.');return;}const {error}=await supabase.from('tools').update({available:b.dataset.value==='1'}).eq('id',b.dataset.toggle);if(error)toast(error.message);else await refresh();});
 }
 
 function showListingDetails(tool){
@@ -360,32 +363,8 @@ function renderNeighbor(root,id){
  root.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>nav('/tool/'+b.dataset.tool));
 }
 
-async function pickupDialog(id){
-  const r=rentals.find(x=>x.id===id),code=tracking(r.tool);showModal(`<div class="dialog-head"><h2>Confirm pickup</h2><button data-close>✕</button></div><p>Match the code on the tool before you take possession.</p><button type="button" id="scan-code">Scan QR with camera</button><video id="scan-preview" class="upload-preview hidden" playsinline muted></video><p id="scan-status" class="fine"></p><form id="pickup-form" class="stack"><label>Tracking code<input name="code" placeholder="${esc(code)}" required></label><button class="primary">Confirm pickup</button></form>`);bindScanner('#pickup-form');$('#pickup-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{await rentalAction(id,'pickup',{code:new FormData(e.target).get('code').trim().toUpperCase()});closeModal();}catch(err){toast(errorText(err));}finally{setBusy(b,false);}}
-}
-
-function bindScanner(formSelector){
- $('#scan-code').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{
-  if(!('BarcodeDetector' in window)||!navigator.mediaDevices?.getUserMedia)throw new Error('Camera scanning is unavailable in this browser. Type the tracking code below.');
-  const detector=new BarcodeDetector({formats:['qr_code']});cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
-  const video=$('#scan-preview');if(!modal.open){stopCamera();return;}video.srcObject=cameraStream;video.classList.remove('hidden');await video.play();$('#scan-status').textContent='Point the camera at the tool QR code.';
-  const scan=async()=>{if(!cameraStream||!modal.open)return;try{const codes=await detector.detect(video);const found=codes.find(c=>/^NG[0-9A-F]{8}$/i.test(c.rawValue));if(found){$(formSelector).elements.code.value=found.rawValue.toUpperCase();$('#scan-status').textContent='Tracking code scanned. Confirm the handoff below.';stopCamera();video.classList.add('hidden');setBusy(b,false);return;}}catch{/* another frame may be readable */}setTimeout(scan,300);};scan();
- }catch(err){stopCamera();$('#scan-status').textContent=errorText(err);setBusy(b,false);}};
-}
-
-async function returnDialog(id){
-  showModal(`<div class="dialog-head"><h2>Return tool</h2><button data-close>✕</button></div><button type="button" id="scan-code">Scan QR with camera</button><video id="scan-preview" class="upload-preview hidden" playsinline muted></video><p id="scan-status" class="fine"></p><form id="return-form" class="stack"><label>Return photo<input type="file" name="photo" accept="image/jpeg,image/png,image/webp" required></label><label>Condition note<textarea name="note" maxlength="500" placeholder="Returned clean; normal wear only."></textarea></label><label>Tracking code (for in-person handoff)<input name="code" placeholder="Code shown on the tool"></label><label>Handoff method<select name="handoff"><option value="scan">In-person handoff</option><option value="dropoff">Agreed drop-off</option></select></label><button class="primary">Submit return</button></form>`);bindScanner('#return-form');$('#return-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),file=f.get('photo');const ext=photoExtension(file),path=`${user.id}/${id}/${crypto.randomUUID()}.${ext}`;const up=await supabase.storage.from('return-photos').upload(path,file,{upsert:false});if(up.error)throw up.error;await rentalAction(id,'return',{returnPhotoPath:path,handoffMethod:f.get('handoff'),note:f.get('note'),code:f.get('code')});closeModal()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}}
-}
 async function reviewDialog(id){showModal(`<div class="dialog-head"><h2>Leave a review</h2><button data-close>✕</button></div><form id="review-form" class="stack"><label>Rating<select name="rating">${[5,4,3,2,1].map(n=>`<option value="${n}">${n} stars</option>`).join('')}</select></label><label>Review<textarea name="body" maxlength="1000"></textarea></label><button class="primary">Publish review</button></form>`);$('#review-form').onsubmit=async e=>{e.preventDefault();const f=new FormData(e.target);const {error}=await supabase.from('reviews').insert({rental_id:id,author_id:user.id,rating:Number(f.get('rating')),body:f.get('body')});if(error)toast(error.message);else{closeModal();toast('Review published.');await refresh()}}}
-async function resumeCheckout(id,b){const r=rentals.find(x=>x.id===id);setBusy(b);try{const base=location.href.split('#')[0],data=await invoke('create-checkout',{toolId:r.tool_id,days:r.days,requestId:r.checkout_request_id,successUrl:base+'#/rentals?payment=success',cancelUrl:base+'#/rentals'});if(data.checkoutUrl)location.assign(data.checkoutUrl);else await refresh();}catch(err){toast(errorText(err));}finally{setBusy(b,false);}}
-async function cancelPendingRental(id){
-  try{
-    const data=await invoke('rental-action',{rentalId:id,action:'cancel'});
-    toast('Checkout cancelled. The tool is available again.');await refresh();
-  }catch(err){if(!/Cancellation is not available/.test(errorText(err)))toast(errorText(err))}
-}
-async function rentalAction(id,action,payload){const data=await invoke('rental-action',{rentalId:id,action,...payload});toast(data.payoutWarning||(action==='approve'?'Deposit returned and owner earnings added to credits.':'Rental updated.'));await refresh();return data;}
-async function showTracking(tool){const url=await QRCode.toDataURL(tracking(tool),{width:240,margin:2});showModal(`<div class="dialog-head"><h2>Tool tracking</h2><button data-close aria-label="Close">✕</button></div><p>${esc(tool.title)}</p><img class="qr" src="${url}" alt="Tracking QR code"><p class="tracking">${esc(tracking(tool))}</p><p class="fine">Show this code at pickup and return. Your neighbor can type the code if camera scanning is unavailable.</p>`);}
+async function rentalAction(id,action,payload){const data=await invoke('rental-action',{rentalId:id,action,...payload});toast(data.payoutWarning||'Rental updated.');await refresh();return data;}
 
 async function renderMfaChallenge(){
   app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Two-factor authentication</div><h1>Enter your authenticator code.</h1><form id="mfa-challenge" class="stack"><label>6-digit code<input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required></label><button class="primary">Verify</button></form><button id="mfa-signout" class="linkish">Sign out</button></section></main>`;
