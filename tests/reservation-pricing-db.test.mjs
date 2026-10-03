@@ -86,6 +86,14 @@ test('reservation billing, confirmed fractional refunds and mutable windows',asy
   await assert.rejects(()=>db.query('select begin_rental_checkout($1,$2)',[other,r.id]),/at least \$0.50/);
   r=await row(r.id);assert.equal(r.status,'accepted');assert.equal(r.credits_used_cents,0);await act(other,r.id,'cancel');
  });
+ await t.test('older day-rounded bookings do not receive an early-return refund after the deadline',async()=>{
+  let r=await request(26);await db.query("update rentals set pricing_basis='legacy_daily',rental_cents=4800,fee_cents=240,amount_due_cents=9800 where id=$1",[r.id]);
+  r=await pay(await accept(await row(r.id)));r=await act(renter,r.id,'pickup',{code:r.tool_id});
+  await db.query("update rentals set billing_starts_at=now()-interval '27 hours',billing_ends_at=now()-interval '1 hour' where id=$1",[r.id]);
+  await act(renter,r.id,'return',{photo:await returnPhoto(r),handoff:'dropoff'});r=await act(owner,r.id,'approve',{confirmReceipt:true});
+  assert.equal(r.rental_refunded_cents,0);assert.equal(r.rental_fee_refunded_cents,0);
+  assert.equal((await db.query("select sum(amount_cents)::integer n from credit_ledger where rental_id=$1 and reason='owner_earnings'",[r.id])).rows[0].n,4560);
+ });
  await t.test('clients cannot mint refunds or alter billing records directly',async()=>{
   await db.exec('set role authenticated;');
   await db.query("select set_config('request.jwt.claim.sub',$1,false),set_config('request.jwt.claims',$2,false)",[other,JSON.stringify({sub:other,role:'authenticated',aal:'aal1'})]);
