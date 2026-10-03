@@ -5,7 +5,7 @@ were integrated following approval of the consolidated 15-item review.
 
 ## Verified locally
 
-- All 48 unit/database checks pass on Node 22.23.3 and Node 24.19.0.
+- All 59 unit/database checks pass on Node 22.23.3 and Node 24.19.0.
 - All 11 Edge Function entrypoints pass Deno type checks.
 - Production build and pinned Wrangler dry run pass; only dist-production is uploaded.
 - The existing browser walkthrough passes signup/sign-in, optional MFA recovery,
@@ -21,7 +21,32 @@ were integrated following approval of the consolidated 15-item review.
   blocked next pickup before physical readiness, audited corrections after financial
   completion, late extension earnings exactly once, and restricted financial RPCs.
 
+## Follow-up test case fixes
+
+- Return condition capture uses the actual video/canvas/JPEG path in Chromium,
+  stops camera tracks afterward and shows a condition preview before submission.
+- Only one condition-photo picker is visible. QR-photo reading remains an
+  optional separate action.
+- Camera permission denial, unsupported phone images and a 9 MB PNG are tested;
+  the large image is resized into a supported private upload.
+- Reservation length is read-only and recalculates with the price from earliest
+  pickup to latest return, including time before collection. Reversed endpoints
+  move forward automatically. A daylight-saving interval uses actual elapsed time.
+- PostgreSQL checks exact fractional refunds, adjusted owner/platform earnings,
+  independent deposit inspection, frozen return time, duplicate settlement,
+  physical corrections, saved-rate extensions, late partial extension payment,
+  safe sub-minimum card checkout failure and denied direct financial access.
+
 ## Verified against the production backend
+
+The follow-up migration is recorded as
+20261003232139_reservation_window_pricing_and_early_returns.sql. A transaction
+against the deployed production functions verified reservation pricing,
+credit checkout, return photo ownership, a $15.75 fractional rental refund,
+inspection hold, duplicate approval, $50 deposit release, $10.21 net owner
+earnings and denied client refund privileges. All test writes were rolled back;
+the existing six rental records were preserved.
+
 
 - Applied additive inventory/reconciliation migrations with connector-assigned
   timestamps recorded in the repository. The prior reservation migration is
