@@ -1,8 +1,10 @@
+> October 4 hardening work: [checkpoint](docs/HARDENING-CHECKPOINT.md), [release controls](docs/RELEASE-CONTROLS.md), and [production roadmap](docs/PRODUCTION-ROADMAP.md). Current validation and backend rollout are recorded in [HARDENING-VALIDATION.md](docs/HARDENING-VALIDATION.md). Historical reports cover their original releases only.
+
 > Garage photo viewing and free local label/barcode identification: [usage and verification](docs/LOCAL-PHOTO-SCAN.md).
 
 # Production deployment
 
-This branch deploys to the Cloudflare Worker at `https://neighborhoodgarage.net/` with its separate production Supabase project. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). Cloudflare hosts the production website; the test branch remains the GitHub Pages sandbox. Use Node 22 or newer and run `npm run check:cloudflare` to validate the production build.
+This branch deploys to the Cloudflare Worker at `https://neighborhoodgarage.net/` with its separate production Supabase project. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). Cloudflare hosts the production website; the test branch remains the GitHub Pages sandbox. Use Node 22 or newer and run `NG_VALIDATION_BUILD=true npm run check:cloudflare` to validate the production build.
 
 # Neighborhood Garage
 
@@ -26,7 +28,7 @@ There is no Demo Mode, fake checkout, seeded marketplace inventory, localStorage
 
 ## Supabase project
 
-Project ref: `ilfpugydxlzmmxjfrmrv`
+Production project: `zbbespojxxoheavodtqs`. Sandbox project: `ilfpugydxlzmmxjfrmrv`.
 
 The browser uses only the project URL, publishable key, and canonical public Auth callback in `config.js`. Those values are intentionally public. Never place Supabase secret keys, Stripe secret keys, or webhook secrets in `config.js` or any GitHub Pages asset.
 
@@ -39,7 +41,7 @@ The deployed payment functions fail closed until real Stripe credentials are con
 
 Configure a Stripe webhook endpoint for:
 
-`https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook`
+`https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook`
 
 Subscribe at minimum to:
 
@@ -47,6 +49,8 @@ Subscribe at minimum to:
 - `checkout.session.async_payment_succeeded`
 - `checkout.session.expired`
 - `checkout.session.async_payment_failed`
+- `charge.refunded`
+- All `charge.dispute.*` events
 
 No payment secrets are committed to this repository.
 

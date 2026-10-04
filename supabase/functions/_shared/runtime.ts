@@ -21,7 +21,9 @@ export async function authenticate(req:Request,{allowMfaRecovery=false}={}){
  const claims=JSON.parse(atob(auth.slice(7).split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
  const factors=await admin.auth.admin.mfa.listFactors({userId:user.id});if(factors.error)throw factors.error;
  if(!allowMfaRecovery&&factors.data.factors.some(f=>f.status==='verified')&&claims.aal!=='aal2')throw new HttpError('Enter your authenticator code before continuing.',403,'mfa_required');
- return {user,admin,client};
+ const scope=new URL(req.url).pathname.split('/').pop()||'api';
+ if(scope!=='delete-account')checked(await admin.rpc('check_request_access',{p_user:user.id,p_scope:scope,p_limit:['credit-funding','withdraw-credits','create-checkout'].includes(scope)?15:60}));
+ return {user,admin,client,claims};
 }
 export function stripeClient(){
  const key=Deno.env.get('STRIPE_SECRET_KEY');

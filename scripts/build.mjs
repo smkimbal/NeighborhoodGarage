@@ -14,6 +14,11 @@ if (publicSiteUrl && deployment.target === 'sandbox') {
   const config = await readFile('config.js', 'utf8');
   await writeFile(`${out}/config.js`, config + '\nwindow.NG_CONFIG.authRedirectUrl = ' + JSON.stringify(publicSiteUrl) + ';\n');
 }
+const publicConfig=await readFile(`${out}/config.js`,'utf8');
+const databaseOrigin=deployment.config?.supabaseUrl||publicConfig.match(/https:\/\/[a-z0-9]+\.supabase\.co/)?.[0];
+if(!databaseOrigin)throw Error('Cannot restrict network policy without a database origin.');
+const headers=(await readFile('_headers','utf8')).replaceAll('https://*.supabase.co',databaseOrigin).replaceAll('wss://*.supabase.co',databaseOrigin.replace('https:','wss:'));
+await writeFile(`${out}/_headers`,headers);
 await build({entryPoints:['src/app.js'],bundle:true,minify:true,format:'esm',splitting:true,target:['es2022'],outdir:`${out}/assets`,entryNames:'app',chunkNames:'chunks/[name]-[hash]',loader:{'.png':'dataurl'},assetNames:'[name]-[hash]',sourcemap:false});
 // Self-host the free OCR runtime and language data. Recognition never uploads a photo.
 const vision=`${out}/assets/vision`;
@@ -27,10 +32,4 @@ await cp('node_modules/tesseract.js-core/LICENSE',`${vision}/core/LICENSE.txt`);
 await cp('node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz',`${vision}/lang/eng.traineddata.gz`);
 const html=(await readFile('index.html','utf8')).replace('./src/style.css','./assets/app.css').replace('./src/app.js','./assets/app.js');
 await writeFile(`${out}/index.html`,html);await writeFile(`${out}/404.html`,html);
-// The repository currently also publishes its branch root through native Pages.
-// Keep that deployment path equivalent to the Actions dist artifact.
-if (deployment.target === 'sandbox') {
- await rm('assets',{recursive:true,force:true});
- await cp(`${out}/assets`,'assets',{recursive:true});
-}
 console.log(`Built ${out}/ (${deployment.target}).`);

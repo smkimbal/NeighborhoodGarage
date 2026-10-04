@@ -10,3 +10,6 @@ supabase/.temp/
 dist-production/
 production-release.json
 .wrangler/
+
+# Generated bundles are deployed from dist artifacts, never source control.
+/assets/

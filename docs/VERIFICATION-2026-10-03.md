@@ -1,3 +1,5 @@
+> Historical checkpoint. This records its original release only; it does not validate the October 4 hardening changes. See [HARDENING-CHECKPOINT.md](HARDENING-CHECKPOINT.md).
+
 # Approved rental workflow verification — October 3, 2026
 
 The owner/renter workflow, unfinished backend checkpoint and production interface

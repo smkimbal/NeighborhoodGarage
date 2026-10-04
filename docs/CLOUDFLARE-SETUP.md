@@ -55,12 +55,9 @@ in scripts/build-cloudflare.mjs. NG_PUBLIC_SITE_URL=https://neighborhoodgarage.n
 is the public site URL. Never put Stripe or Supabase service secrets in frontend
 build settings.
 
-NG_PRODUCTION_BACKEND_READY is optional. When it is absent or not true, the build
-prints a reminder and still creates the production frontend. Deploy the site so
-real-domain email and sandbox payment callbacks can be tested. This flag only
-acknowledges verification; it does not check backend health or change payment mode.
-The production domain, database and public-key validation still fail on invalid
-configuration. Complete the following checks before accepting customers:
+Production publication now checks the exact `main` commit's successful GitHub validation workflow and the public backend release version. No per-commit Dashboard environment update is needed for native Cloudflare Builds. The build waits up to about 13 minutes for CI; validation failures, unavailable readiness APIs or incompatible backend versions block publication. Use `npm run deploy` as the deploy command. Never set `NG_VALIDATION_BUILD=true` in Cloudflare production: it is for unpublished CI compilation only. Trusted manual release runners may supply the two exact-revision attestations described in RELEASE-CONTROLS.md. The old `NG_PRODUCTION_BACKEND_READY` flag is retired.
+
+Complete these provider checks before accepting customers:
 
 - Production schema and Edge Functions are deployed.
 - Auth Site URL points to https://neighborhoodgarage.net/; verify signup and reset

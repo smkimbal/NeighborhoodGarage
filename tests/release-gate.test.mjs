@@ -1,0 +1,9 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {verifyHostedRelease} from '../scripts/release-gate.mjs';
+const sha='a'.repeat(40),backendVersion='fixture-version';
+const run={head_sha:sha,head_branch:'main',event:'push',status:'completed',conclusion:'success',id:100,run_number:2,run_attempt:1};
+function fixture(runs,version=backendVersion){let requests=0,waits=0;return {request:async(url,options)=>{requests++;assert(options.signal);if(url.includes('supabase.co')){assert.equal(options.headers.apikey.startsWith('sb_publishable_'),true);return Response.json(version);}assert.match(url,new RegExp('head_sha='+sha));return Response.json({workflow_runs:runs.shift()||[]});},wait:async()=>waits++,stats:()=>({requests,waits})};}
+test('native production gate waits for this commit CI and rechecks backend',async()=>{const f=fixture([[],[{...run,status:'in_progress'}],[run]]);assert.deepEqual(await verifyHostedRelease({sha,backendVersion,...f,attempts:3}),{sha,backendVersion,validationRun:100});assert.deepEqual(f.stats(),{requests:5,waits:2});});
+test('wrong commits, PRs and manual runs cannot authorize publication',async()=>{for(const invalid of [{...run,head_sha:'b'.repeat(40)},{...run,event:'pull_request'},{...run,event:'workflow_dispatch'},{...run,head_branch:'neighborhood-garage-test'}]){await assert.rejects(verifyHostedRelease({sha,backendVersion,...fixture([[invalid]]),attempts:1}),/no completed successful/);}});
+test('failed or canceled latest validation and mismatched backend block release',async()=>{for(const conclusion of ['failure','cancelled'])await assert.rejects(verifyHostedRelease({sha,backendVersion,...fixture([[run,{...run,run_attempt:2,conclusion}]]),attempts:1}),new RegExp(conclusion));await assert.rejects(verifyHostedRelease({sha,backendVersion,...fixture([[run]],'old-version'),attempts:1}),/incompatible/);});

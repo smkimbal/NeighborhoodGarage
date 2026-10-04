@@ -1,3 +1,4 @@
+import {recordReceipt,refreshSettlements} from './receipts.ts';
 import type Stripe from 'npm:stripe@22.6.0';
 import type {SupabaseClient} from 'npm:@supabase/supabase-js@2.95.0';
 import {checked} from './runtime.ts';
@@ -22,15 +23,17 @@ export async function reconcileRentals(admin:SupabaseClient,stripe:Stripe){
    if(session.status==='open')verified=await stripe.checkout.sessions.expire(session.id);
    if(verified.id!==session.id)throw new Error('Provider session changed during verification.');
    if(verified.status!=='expired'&&(verified.status!=='complete'||verified.payment_status!=='paid')){deferred++;continue;}
+   await recordReceipt(stripe,admin,verified,record,extension);
    checked(await admin.rpc(extension?'finish_extension_payment':'finish_payment',{
     p_event:'reconcile:'+verified.id,p_type:'checkout.session.reconciled',p_session:verified.id,
     ...(extension?{p_extension:record.id}:{p_rental:record.id}),p_paid:verified.status==='complete',
-    p_amount:verified.amount_total,p_currency:verified.currency,
+    p_amount:record.amount_due_cents,p_currency:verified.currency,
     p_intent:typeof verified.payment_intent==='string'?verified.payment_intent:verified.payment_intent?.id||null,
     p_payload:{session_id:verified.id,source:'scheduled_stripe_verification'}
    }));reconciled++;
   }catch(error){deferred++;errors.push(error instanceof Error?error.message:'Payment verification unavailable');}
  }
+ await refreshSettlements(stripe,admin);
  const deadlineRefunds=checked(await admin.rpc('process_rental_deadlines'));
  return {reconciled,deferred,deadlineRefunds,errors};
 }

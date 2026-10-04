@@ -1,3 +1,5 @@
+> Historical checkpoint. This records its original release only; it does not validate the October 4 hardening changes. See [HARDENING-CHECKPOINT.md](HARDENING-CHECKPOINT.md).
+
 # Validation after the restoration checkpoint
 
 Working branch: `neighborhood-garage-zip-2026-09-28`. Main was not changed.

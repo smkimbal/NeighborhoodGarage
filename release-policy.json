@@ -1,0 +1,8 @@
+{
+  "backendVersion": "2026-10-04-hardening-1",
+  "productionBranch": "main",
+  "sandboxBranch": "neighborhood-garage-test",
+  "minimumNodeMajor": 22,
+  "requiredValidation": ["unit", "edge-types", "production-browser", "database-and-payment-scenarios"],
+  "livePayments": "blocked-pending-approved-fee-policy-and-launch-review"
+}

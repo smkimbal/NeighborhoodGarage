@@ -1,3 +1,4 @@
+import {recordReceipt} from '../_shared/receipts.ts';
 import {authenticate,checked,endpoint,HttpError,stripeClient,itemCode} from '../_shared/runtime.ts';
 import {recoverCheckout,releaseMissingCheckout} from '../_shared/checkout-session.ts';
 Deno.serve(endpoint(async req=>{
@@ -12,14 +13,14 @@ Deno.serve(endpoint(async req=>{
  if(action==='sync-payment'){
   if(r.status!=='pending_payment')return {rental:r};const s=await recoverCheckout(stripeClient(),admin,r);if(!s){await releaseMissingCheckout(admin,user.id,r);return {released:true};}validateSession(s);
   if(s.status!=='expired'&&(s.status!=='complete'||s.payment_status!=='paid'))throw new HttpError('Stripe has not confirmed this payment yet.');
-  checked(await admin.rpc('finish_payment',{p_event:'reconcile:'+s.id,p_type:'checkout.session.reconciled',p_session:s.id,p_rental:r.id,p_paid:s.status==='complete',p_amount:s.amount_total,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{session_id:s.id,source:'stripe_api'}}));return {rental:checked(await admin.from('rentals').select('*').eq('id',r.id).single())};
+  await recordReceipt(stripeClient(),admin,s,r);checked(await admin.rpc('finish_payment',{p_event:'reconcile:'+s.id,p_type:'checkout.session.reconciled',p_session:s.id,p_rental:r.id,p_paid:s.status==='complete',p_amount:r.amount_due_cents,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{session_id:s.id,source:'stripe_api'}}));return {rental:checked(await admin.from('rentals').select('*').eq('id',r.id).single())};
  }
  if(['approve-extension','decline-extension','cancel-extension','sync-extension'].includes(action)){
   const e=checked(await admin.from('rental_extensions').select('*').eq('id',body.extensionId).eq('rental_id',r.id).single());if(!e)throw new HttpError('Extension not found.',404);let safe=false;
   if(action==='sync-extension'){
    if(e.status!=='pending_payment')return {extension:e};const s=await recoverCheckout(stripeClient(),admin,e,true);if(!s){await releaseMissingCheckout(admin,user.id,e,true);return {released:true};}validateSession(s,e.id);
    if(s.status!=='expired'&&(s.status!=='complete'||s.payment_status!=='paid'))throw new HttpError('Stripe has not confirmed the extension payment yet.');
-   checked(await admin.rpc('finish_extension_payment',{p_event:'reconcile:'+s.id,p_type:'checkout.session.reconciled',p_session:s.id,p_extension:e.id,p_paid:s.status==='complete',p_amount:s.amount_total,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{session_id:s.id,source:'stripe_api'}}));return {extension:checked(await admin.from('rental_extensions').select('*').eq('id',e.id).single())};
+   await recordReceipt(stripeClient(),admin,s,e,true);checked(await admin.rpc('finish_extension_payment',{p_event:'reconcile:'+s.id,p_type:'checkout.session.reconciled',p_session:s.id,p_extension:e.id,p_paid:s.status==='complete',p_amount:e.amount_due_cents,p_currency:s.currency,p_intent:typeof s.payment_intent==='string'?s.payment_intent:s.payment_intent?.id||null,p_payload:{session_id:s.id,source:'stripe_api'}}));return {extension:checked(await admin.from('rental_extensions').select('*').eq('id',e.id).single())};
   }
   if(action==='cancel-extension'&&e.status==='pending_payment'){
    const stripe=stripeClient(),s=await recoverCheckout(stripe,admin,e,true);if(!s){await releaseMissingCheckout(admin,user.id,e,true);return {released:true};}validateSession(s,e.id);if(s.status==='complete')throw new HttpError('Check the extension payment status before cancelling.');if(s.status!=='expired')await stripe.checkout.sessions.expire(s.id);safe=true;

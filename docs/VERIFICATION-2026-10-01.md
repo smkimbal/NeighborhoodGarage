@@ -1,3 +1,5 @@
+> Historical checkpoint. This records its original release only; it does not validate the October 4 hardening changes. See [HARDENING-CHECKPOINT.md](HARDENING-CHECKPOINT.md).
+
 # Production verification — October 1, 2026
 
 > Later deployment correction: Cloudflare's latest supplied log passed 17 tests and all Edge Function checks, then failed only on the required backend-readiness flag. The flag is now advisory so the frontend can be deployed for real-domain verification. The Workers asset-directory fix remains in place. This change does not establish email delivery or webhook readiness and does not change Stripe payment mode.

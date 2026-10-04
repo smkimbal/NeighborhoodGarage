@@ -1,8 +1,16 @@
 import {authenticate,checked,endpoint,HttpError,stripeClient} from '../_shared/runtime.ts';
 Deno.serve(endpoint(async req=>{
- const {user,admin}=await authenticate(req);
- const {amountCents,requestId}=await req.json();
+ const {user,admin,claims}=await authenticate(req);
+ if(claims.aal!=='aal2')throw new HttpError('Enable your authenticator in Profile and verify it before withdrawing.',403,'withdrawal_mfa_required');
+ const {action,amountCents,requestId,confirmedFeeCents}=await req.json();
+ if(action==='quote'){
+  if(!Number.isSafeInteger(amountCents)||amountCents<100)throw new HttpError('Enter at least $1.');
+  if((Deno.env.get('STRIPE_MODE')||'sandbox')==='live')throw new HttpError('Live withdrawals require the approved Connect transfer and payout fee schedule.',503,'withdrawal_fee_policy_required');
+  return {creditsDebitedCents:amountCents,processingFeeCents:0,stripeTransferCents:amountCents,policy:'sandbox-transfer-no-fee',bankPayoutFee:'Shown by Stripe before a bank payout; bank arrival is not guaranteed by this transfer.'};
+ }
  if(!Number.isSafeInteger(amountCents)||amountCents<100||!requestId)throw new HttpError('Enter at least $1.');
+ const existing=checked(await admin.from('credit_withdrawals').select('id').eq('id',requestId).eq('user_id',user.id).maybeSingle());
+ if(!existing){if((Deno.env.get('STRIPE_MODE')||'sandbox')==='live')throw new HttpError('Live withdrawal fees require configuration.',503,'withdrawal_fee_policy_required');if(confirmedFeeCents!==0)throw new HttpError('Review the transfer quote before confirming.',409);}
  const stripe=stripeClient(); // A withdrawal, unlike internal spending, requires external payments.
  const w=checked(await admin.rpc('reserve_credit_withdrawal',{p_user:user.id,p_amount:amountCents,p_request:requestId}));
  if(w.status==='paid')return {withdrawal:w};

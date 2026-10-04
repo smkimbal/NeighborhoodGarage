@@ -11,7 +11,7 @@ export async function database(){
  create function auth.role() returns text language sql stable as $$select auth.jwt()->>'role'$$;
  grant usage on schema auth,storage to authenticated,service_role;
  create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);
- create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text);
+ create table storage.objects(id uuid primary key default gen_random_uuid(),bucket_id text,name text,created_at timestamptz not null default now());
  alter table storage.objects enable row level security;grant all on storage.objects to authenticated,service_role;
  create function storage.foldername(text) returns text[] language sql immutable as $$select string_to_array($1,'/')$$;
  create publication supabase_realtime;`);

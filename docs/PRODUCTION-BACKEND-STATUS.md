@@ -1,3 +1,5 @@
+> Historical checkpoint. This records its original release only; it does not validate the October 4 hardening changes. See [HARDENING-CHECKPOINT.md](HARDENING-CHECKPOINT.md).
+
 > Updated October 1: Auth redirect and Stripe test key verified; actual Stripe and internal-credit rental tests completed. The production webhook was created; its signing secret still needs configuration. Frontend deployment now proceeds without a backend-readiness flag so real-domain testing can be completed. See [the current verification report](VERIFICATION-2026-10-01.md); the setup checklist below is historical where superseded.
 
 # Production backend checkpoint — 2026-09-30
