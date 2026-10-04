@@ -1,32 +1,39 @@
 # Supabase + Stripe + AI operations
 
-The static GitHub Pages frontend uses only the Supabase public URL/key in `config.js`. Secrets belong in Supabase Edge Function secrets, never in GitHub Pages assets.
+The static production frontend uses only the Supabase public URL/key in `config.js`. Secrets belong in Supabase Edge Function secrets, never in GitHub Pages assets.
 
 ## Environment
 
 - `STRIPE_SECRET_KEY`: sandbox `rk_test_…` with the required Connect, Checkout, PaymentIntent, and Transfer permissions (or a sandbox secret key during initial setup).
 - `STRIPE_MODE`: `sandbox` by default. Live keys are rejected until explicitly set to `live`.
-- `STRIPE_WEBHOOK_SECRET`: signing secret for this project's endpoint, matching the sandbox.
+- `STRIPE_WEBHOOK_SECRET`: signing secret for this project's endpoint, matching the sandbox; production can also read its endpoint-specific signing secret from Supabase Vault.
+- `NG_CREDIT_FUNDING_APPROVED`: set to `true` in live mode only after Stripe approves the prepaid-credit and withdrawal model. The current sandbox needs no live-approval flag.
 - `OPENAI_API_KEY`: required by the pending AI implementation. External photo processing is currently disabled pending owner approval. The disabled deployed endpoints send no photos to OpenAI. Ready-to-review identification and cleanup handlers are in `supabase/pending-ai`; return comparison is in `_shared/vision.ts`. Once approved, copy the pending handlers to their function index files, adjust imports from `../functions/_shared/` to `../_shared/`, and deploy. Re-enable return comparison only with renter consent. Without it, manual listing and owner review remain functional; AI controls explain what is missing.
 - Optional `OPENAI_VISION_MODEL` (default `gpt-4.1-mini`) and `OPENAI_IMAGE_MODEL` (default `gpt-image-1`).
 - Supabase supplies its URL and credentials; both legacy `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` and newer `SUPABASE_PUBLISHABLE_KEYS` / `SUPABASE_SECRET_KEYS` JSON maps are supported.
 
 Deploy migrations with `npx supabase db push` and functions with `npx supabase functions deploy <name> --no-verify-jwt`. Every user-facing function validates its bearer token with Auth `getUser` and enforces enrolled MFA itself; the webhook validates Stripe's signature. The gateway flag alone is not the authentication mechanism.
 
-Functions: `connect-account`, `create-checkout`, `rental-action`, `stripe-webhook`, `mfa-recovery`, `identify-tool`, `prepare-photo`.
+Functions: `connect-account`, `create-checkout`, `credit-funding`, `rental-action`, `rental-booking`, `rental-maintenance`, `withdraw-credits`, `delete-account`, `stripe-webhook`, `mfa-recovery`, `identify-tool`, `prepare-photo`.
 
 ## Stripe sandbox
 
 Enable Connect in the same Stripe sandbox as the server key. New owners use Accounts v2 recipient accounts and Stripe-hosted onboarding. Never mark onboarding complete from a redirect alone: the server re-reads the transfer capability. Onboarding links are single-use; expired links return through the refresh handler.
 
-Register `https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook` for:
+Register `https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook` for:
 
 - `checkout.session.completed`
 - `checkout.session.async_payment_succeeded`
 - `checkout.session.async_payment_failed`
 - `checkout.session.expired`
+- `charge.refunded`
+- `charge.dispute.created`
+- `charge.dispute.updated`
+- `charge.dispute.closed`
+- `charge.dispute.funds_withdrawn`
+- `charge.dispute.funds_reinstated`
 
-A card checkout is a **charge**, including a refundable deposit, not a card authorization hold or regulated escrow service. Credit reservation and release are atomic. Deposits become internal, non-cash-out Tool Share Credits only after owner concurrence. Approved loans can have pending owner payouts; owners retry in My garage. Maintain enough platform balance to fund transfers for credit-funded loans. A 5% marketplace fee does not guarantee profitability after Stripe fees.
+A card checkout is a **charge**, including a refundable deposit, not a card authorization hold or regulated escrow service. Credit reservation and release are atomic. Released deposits, earnings and verified funding become Tool Share Credits. Any user can request a credit withdrawal after completing Stripe Connect bank/payout setup. Pending transfers reserve credits and can be retried with the same request ID. See [credit funding and reputation](CREDITS-AND-REPUTATION.md) for the ledger, chargeback handling and live funding gate. Maintain enough platform balance to fund transfers for credit-funded loans. A 5% marketplace fee does not guarantee profitability after Stripe fees.
 
 Do not simply replace sandbox keys in a database containing sandbox account and payment IDs. Before launch, use a separate production Supabase/Stripe environment, register its webhook, onboard owners again, and reconcile balances. Configure durable payout jobs/reconciliation, disputes/refunds, retention, email delivery, abuse controls, and applicable payment/insurance arrangements. The prototype makes no insurance-coverage promise.
 
@@ -45,7 +52,7 @@ The Pages workflow targets the working branch, not main. The repository also has
 ### Complete the remaining project settings
 
 1. In Stripe Dashboard, select the intended sandbox and obtain its secret or appropriately restricted server key. In the Supabase project's Edge Function secrets, set `STRIPE_SECRET_KEY` to that sandbox key and `STRIPE_MODE` to `sandbox`. Do not put the key in `config.js`, GitHub Actions, or chat.
-2. Register the Stripe sandbox webhook against `https://ilfpugydxlzmmxjfrmrv.supabase.co/functions/v1/stripe-webhook`, select the events listed above, and set its signing secret as `STRIPE_WEBHOOK_SECRET` in the same Supabase project.
+2. Register the Stripe sandbox webhook against `https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook`, select the events listed above, and set its signing secret as `STRIPE_WEBHOOK_SECRET` in the same Supabase project.
 3. In Supabase Dashboard Authentication settings, enable leaked password protection if available. Re-run Security Advisor. An Auth config warning cannot be cleared by a SQL migration.
 4. Verify Connect onboarding, a sandbox checkout and webhook, then owner payout before opening reservations to users. The current Edge function returns a specific `stripe_not_configured` error until setup succeeds.
 

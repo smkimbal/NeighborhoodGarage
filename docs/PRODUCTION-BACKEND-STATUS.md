@@ -1,3 +1,5 @@
+> Updated October 1: Auth redirect and Stripe test key verified; actual Stripe and internal-credit rental tests completed. The production webhook was created; its signing secret still needs configuration. Frontend deployment now proceeds without a backend-readiness flag so real-domain testing can be completed. See [the current verification report](VERIFICATION-2026-10-01.md); the setup checklist below is historical where superseded.
+
 # Production backend checkpoint — 2026-09-30
 
 Created in the existing **Neighborhood Garage** Free organization with a quoted project cost of **$0/month**:
@@ -23,7 +25,7 @@ The Supabase connector does not expose an Auth configuration or secrets setter. 
 2. Edge Functions → Secrets: set `STRIPE_MODE=sandbox` and a Stripe **test** API key as `STRIPE_SECRET_KEY` (test restricted key with required Checkout, Accounts v2, Connect/transfer permissions, or the existing sandbox key). Never put it in GitHub or frontend config.
 3. In that Stripe sandbox, add a webhook destination `https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, and `checkout.session.expired`. Store its signing secret as `STRIPE_WEBHOOK_SECRET` in this Supabase project.
 4. Leave Stripe Sync disabled here unless it is separately installed and configured. The production handler uses the explicit webhook signing secret; the original sandbox's managed Stripe Sync behavior is preserved.
-5. Run real-domain signup/verification/reset and the full sandbox Connect → payment → return → owner credit → withdrawal journey. Then set Cloudflare `NG_PRODUCTION_BACKEND_READY=true` to allow its build. Do not set readiness merely to silence a build failure.
+5. Deploy the frontend and run real-domain signup/verification/reset and the full sandbox Connect → payment → return → owner credit → withdrawal journey. Cloudflare builds without `NG_PRODUCTION_BACKEND_READY`; it prints an advisory reminder until verification is acknowledged. Keep Stripe in sandbox and complete these checks before accepting customers.
 
 No live Stripe key, real-money charge or bank withdrawal has been enabled. No Stripe sandbox credentials were copied from another project. Public Supabase configuration is already in the production branch.
 

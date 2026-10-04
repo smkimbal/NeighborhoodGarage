@@ -1,7 +1,8 @@
 import Stripe from 'npm:stripe@22.6.0';
 import {StripeSync} from 'npm:@stripe/sync-engine@1.0.32';
-import {stripeClient} from '../_shared/runtime.ts';
+import {stripeClient,adminClient,checked} from '../_shared/runtime.ts';
 import {applyRentalPayment} from '../_shared/rental-payment.ts';
+import {applyCreditPayment} from '../_shared/credit-funding.ts';
 
 // Preserve the installed Supabase Stripe Sync integration AND fulfill app rentals.
 Deno.serve(async req=>{
@@ -19,12 +20,14 @@ Deno.serve(async req=>{
    // Sync verifies the signature with its managed webhook secret before any processing.
    await sync.webhook.processWebhook(rawBody,signature);
   }else{
-   const secret=Deno.env.get('STRIPE_WEBHOOK_SECRET');
+   // Edge secrets remain supported; Vault allows a connected operator to provision
+   // this one signing secret without exposing dashboard/API credentials.
+   const secret=Deno.env.get('STRIPE_WEBHOOK_SECRET')||checked(await adminClient().rpc('stripe_webhook_signing_secret'));
    if(!secret)return new Response('Webhook not configured',{status:503});
    await stripeClient().webhooks.constructEventAsync(rawBody,signature,secret,undefined,Stripe.createSubtleCryptoProvider());
   }
   const event=JSON.parse(new TextDecoder().decode(rawBody)) as Stripe.Event;
-  await applyRentalPayment(event);
+  if(!await applyCreditPayment(event,stripeClient(),adminClient()))await applyRentalPayment(event);
   return new Response('ok');
  }catch(error){
   const e=error as {message?:string,type?:string};

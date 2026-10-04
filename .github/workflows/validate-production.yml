@@ -1,0 +1,38 @@
+name: Validate Cloudflare production
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-validation-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --engine-strict
+      - run: npm run check:cloudflare
+      - name: Install browser for Node 22 walkthrough
+        if: matrix.node == 22
+        run: npx playwright install --with-deps chromium
+      - name: Walk through the production bundle
+        if: matrix.node == 22
+        env:
+          NG_TEST_DIST: dist-production
+        run: npm run test:browser
+      - name: Validate Cloudflare asset packaging without deploying
+        if: matrix.node == 22
+        run: npm run deploy -- --dry-run

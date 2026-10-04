@@ -22,7 +22,8 @@ Deno.serve(endpoint(async req=>{
  if(!accountId)return {complete:false,mode:Deno.env.get('STRIPE_MODE')||'sandbox'};
  if(action==='dashboard')return {url:(await stripe.accounts.createLoginLink(accountId)).url};
  const account=await stripe.v2.core.accounts.retrieve(accountId,{include:['configuration.recipient','requirements']});
- const complete=account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status==='active';
+ const capabilities=account.configuration?.recipient?.capabilities?.stripe_balance;
+ const complete=capabilities?.stripe_transfers?.status==='active'&&capabilities?.payouts?.status==='active';
  checked(await admin.from('profiles').update({stripe_onboarding_complete:complete}).eq('id',user.id));
  if(action==='status'||complete)return {complete,mode:Deno.env.get('STRIPE_MODE')||'sandbox'};
  const link=await stripe.v2.core.accountLinks.create({account:accountId,use_case:{type:'account_onboarding',account_onboarding:{configurations:['recipient'],refresh_url:checkedUrl(body.refreshUrl),return_url:checkedUrl(body.returnUrl)}}});

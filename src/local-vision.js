@@ -1,24 +1,91 @@
-// The original photo never leaves this device during recognition. Model weights are fetched on first use.
-const toolNames=[
-  [/power drill|drill|screwdriver|saw|hammer|wrench|plane|sander|vise|nail|lathe|grinder|chisel/, 'Power tools'],
-  [/lawn mower|chainsaw|shovel|rake|wheelbarrow|axe|hedge trimmer|garden/, 'Garden'],
-  [/ladder|paintbrush|level|tape measure|pliers/, 'Home & DIY'],
-  [/car jack|tire|tyre|automotive/, 'Automotive']
-];
-export function suggestionForPredictions(predictions){
-  const match=predictions.find(p=>p.probability>=0.12&&toolNames.some(([re])=>re.test(p.className.toLowerCase())));
-  if(!match)return {notice:'The on-device model could not identify this tool reliably. Enter its details yourself; no photo was sent to a recognition service.'};
-  const label=match.className.split(',')[0].trim();
-  return {title:label[0].toUpperCase()+label.slice(1),category:toolNames.find(([re])=>re.test(match.className.toLowerCase()))[1],notice:`Possible match: ${label} (${Math.round(match.probability*100)}% model confidence). Check the title and category. Model number, wear, and deposit must be entered by you.`};
+// Free, local recognition. Only model/worker downloads use the network; photos stay on-device.
+import {labelTextForOcr, suggestionForEvidence} from './tool-identification.js';
+export {suggestionForPredictions} from './tool-identification.js';
+let visualModel;
+async function within(promise, milliseconds) {
+  let timer;
+  try {return await Promise.race([promise, new Promise((_, reject) => {timer = setTimeout(() => reject(new Error('Local recognition took too long. Try a smaller, clearer label photo.')), milliseconds);})]);}
+  finally {clearTimeout(timer);}
 }
-export async function classifyTool(file){
-  const url=URL.createObjectURL(file);
-  try{
-    const image=new Image();image.src=url;await image.decode();
-    const [tf,mobilenet]=await Promise.all([import('@tensorflow/tfjs'),import('@tensorflow-models/mobilenet')]);
-    await tf.ready();const model=await mobilenet.load({version:2,alpha:0.5});
-    return suggestionForPredictions(await model.classify(image,5));
-  }finally{URL.revokeObjectURL(url);}
+async function predict(image) {
+  visualModel ??= (async () => {
+    const [tf, mobilenet] = await Promise.all([import('@tensorflow/tfjs'), import('@tensorflow-models/mobilenet')]);
+    await tf.ready();
+    return mobilenet.load({version: 2, alpha: .5});
+  })().catch(error => {visualModel = null; throw error;});
+  return (await visualModel).classify(image, 5);
+}
+
+async function imageCanvas(file, maxSize = 1800) {
+  const bitmap = await createImageBitmap(file), scale = Math.min(1, maxSize / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);bitmap.close();
+  return canvas;
+}
+
+export async function readPhotoBarcodes(canvas) {
+  if (globalThis.BarcodeDetector) {
+    try {
+      const formats = await BarcodeDetector.getSupportedFormats();
+      if (formats.length) {
+        const found = await new BarcodeDetector({formats}).detect(canvas);
+        if (found.length) return found.map(value => value.rawValue);
+      }
+    } catch {} // A browser with no native support uses the bundled free decoder.
+  }
+  const zxing = await import('@zxing/library');
+  // Node 22 loads the CommonJS entry through default; the browser bundle uses ESM.
+  const {QRCodeReader, MultiFormatOneDReader, DataMatrixReader, RGBLuminanceSource, BinaryBitmap, HybridBinarizer, DecodeHintType, BarcodeFormat} = zxing.default || zxing;
+  const frame = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+  const luminance = new Uint8ClampedArray(canvas.width * canvas.height);
+  for (let i = 0; i < luminance.length; i++) luminance[i] = (frame.data[i * 4] + 2 * frame.data[i * 4 + 1] + frame.data[i * 4 + 2]) / 4;
+  const bitmap = new BinaryBitmap(new HybridBinarizer(new RGBLuminanceSource(luminance, canvas.width, canvas.height)));
+  const hints = new Map([[DecodeHintType.TRY_HARDER, true], [DecodeHintType.POSSIBLE_FORMATS,
+    [BarcodeFormat.UPC_A, BarcodeFormat.UPC_E, BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.CODE_128, BarcodeFormat.CODE_39, BarcodeFormat.ITF]]]);
+  // Explicit supported readers also avoid noisy warnings for every non-barcode photo.
+  for (const reader of [new QRCodeReader(), new MultiFormatOneDReader(hints), new DataMatrixReader()]) {
+    try {return [reader.decode(bitmap, hints).getText()];}
+    catch {} // No matching barcode is an ordinary scan outcome.
+    finally {reader.reset();}
+  }
+  return [];
+}
+
+export async function readPhotoLabel(canvas, onProgress = () => {}) {
+  const tesseract = await import('tesseract.js');
+  const {createWorker, PSM} = tesseract.default || tesseract;
+  const base = new URL('./assets/vision/', document.baseURI).href;
+  // Worker, WASM and English data are deployed with the site, not a paid recognition API.
+  let rejectInitialization, expired = false;
+  const initializationError = new Promise((_, reject) => {rejectInitialization = reject;});
+  const initializing = createWorker('eng', 1, {
+    workerPath: base + 'worker.min.js', corePath: base + 'core/', langPath: base + 'lang',
+    workerBlobURL: false, cachePath: 'ng-ocr-eng-v1', errorHandler: error => rejectInitialization(new Error(String(error))), logger: message => {
+      if (message.status === 'recognizing text') onProgress(`Reading the label on this device… ${Math.round(message.progress * 100)}%`);
+    }
+  });
+  initializing.then(worker => {if (expired) worker.terminate();}, () => {});
+  let worker;
+  try {
+    worker = await within(Promise.race([initializing, initializationError]), 60000);
+    await worker.setParameters({tessedit_pageseg_mode: PSM.SPARSE_TEXT});
+    const {data} = await within(worker.recognize(canvas, {}, {text: true, blocks: true}), 60000);
+    return labelTextForOcr(data);
+  } finally {expired = true; await worker?.terminate();}
+}
+
+export async function classifyTool(file, {labelFile = file, onProgress = () => {}} = {}) {
+  const image = await imageCanvas(file, 1000), label = labelFile === file ? await imageCanvas(file) : await imageCanvas(labelFile);
+  onProgress('Checking the tool, printed label and barcode on this device…');
+  // Independent engines allow a useful label draft even if visual model downloads fail.
+  const results = await Promise.allSettled([within(predict(image), 30000), readPhotoLabel(label, onProgress), readPhotoBarcodes(label)]);
+  const [visual, ocr, codes] = results.map(value => value.status === 'fulfilled' ? value.value : null);
+  const result = suggestionForEvidence(visual || [], {text: ocr || '', barcodes: codes || []});
+  results.forEach((value, index) => {if (value.status === 'rejected') console.warn(`Local ${['tool classification', 'label reading', 'barcode reading'][index]} unavailable:`, value.reason?.message || String(value.reason));});
+  if (results.some(value => value.status === 'rejected')) result.notice += ' Part of the scan was unavailable. Try again with a clear label photo and an internet connection for model downloads.';
+  result.notice += ' Recognition is free and runs on this device; no photo was sent to an AI service.';
+  return result;
 }
 
 // For plain contrasting backdrops, a local canvas flood fill removes connected edge pixels.

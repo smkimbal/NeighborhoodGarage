@@ -1,63 +1,45 @@
-# Current production setup
+# Hosting and releases
 
-The production branch now uses Cloudflare Git integration for automated releases. Follow [CLOUDFLARE-SETUP.md](CLOUDFLARE-SETUP.md). The Direct Upload procedure below is an alternative, not the selected default.
-
-# Cloudflare production migration — 2026-09-30
-
-## Deployment separation
-
-| Environment | Hosting | Backend | Updates |
+| Environment | Host | Backend | Source branch |
 | --- | --- | --- | --- |
-| Sandbox | GitHub Pages: https://smkimbal.github.io/NeighborhoodGarage/ | Existing Supabase ilfpugydxlzmmxjfrmrv and Stripe sandbox | Existing branch/Actions |
-| Production (prepared, not provisioned) | Cloudflare Pages: https://neighborhoodgarage.net/ | Separate Supabase project; payment activation remains a separate launch step | Reviewed direct-upload artifact from trusted workstation or non-GitHub CI |
+| Production | Cloudflare Worker `neighborhoodgarage`, https://neighborhoodgarage.net/ | Supabase `zbbespojxxoheavodtqs`; Stripe sandbox | `main` |
+| Sandbox | GitHub Pages, https://smkimbal.github.io/NeighborhoodGarage/ | Supabase `ilfpugydxlzmmxjfrmrv`; Stripe sandbox | `neighborhood-garage-test` |
 
-No Cloudflare project, custom-domain binding, DNS record, production database or live payment configuration has been changed in this checkpoint. Cloudflare account access is still required. Production is independent of GitHub Pages and GitHub Actions; GitHub remains the experimentation/source checkpoint. Copy an approved release into a private production workspace if production source must also be kept outside GitHub.
+Cloudflare Workers Builds installs locked dependencies, validates and builds the
+production frontend, then runs the pinned Wrangler deploy command. The committed
+`wrangler.jsonc` uploads only `dist-production`. Follow
+[CLOUDFLARE-SETUP.md](CLOUDFLARE-SETUP.md) for the existing Worker's settings.
+GitHub Actions validates `main`; its Pages deployment is restricted to the
+sandbox branch. Root sandbox assets and its public configuration remain separate.
 
-## One-time Cloudflare setup
+The production build includes only the production public Supabase URL/key and
+canonical site URL. Backend service keys, Stripe keys and webhook signing secrets
+belong in Supabase's secret store. Deploy backward-compatible database migrations
+and Edge handlers before publishing frontend changes. Reconcile historical
+migration names/content before using CLI `db push`: earlier connector deployments
+assigned timestamps different from the original local files.
 
-Use the existing account that owns neighborhoodgarage.net. Install Wrangler 4.145.0 on the trusted release runner (`npm install --global wrangler@4.145.0`). Authenticate and create a **Direct Upload** Pages project named `neighborhood-garage-production`, production branch `production`:
-
-```sh
-wrangler pages project create neighborhood-garage-production --production-branch production
-```
-
-Do not connect this project to GitHub. In Pages → Custom domains, associate `neighborhoodgarage.net` with this project **before** creating the DNS target. Let Cloudflare create the required apex record after reviewing existing DNS; preserve mail records. Add `www.neighborhoodgarage.net` as another custom domain and configure a permanent redirect to the apex. Wait for domain verification and HTTPS certificate activation. Do not add a CNAME file to the GitHub sandbox.
-
-Use a scoped Cloudflare API token with Account / Cloudflare Pages / Edit, restricted to this account, on the release runner. Keep `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in its secret store, never source or browser config. DNS changes are separate from routine releases.
-
-## Production backend and launch prerequisites
-
-Create a separate Supabase project; apply the repository migrations and deploy its Edge Functions (including the combined Stripe webhook). Do not copy sandbox customer/test records. Set production Edge secret `NG_DEPLOY_TARGET=production`: the shared runtime then accepts only `https://neighborhoodgarage.net`, while the existing sandbox defaults stay unchanged. Preview domains are intentionally not trusted.
-
-Set production Auth Site URL and allowed redirect URL to `https://neighborhoodgarage.net/`. Configure production mail delivery and verify signup, confirmation, reset and optional MFA on the actual domain. Configure storage and verify RLS with two unrelated test accounts. Keep the sandbox project's current GitHub redirect intact.
-
-Stripe live activation is not part of this hosting change. Current app text and workflows still describe sandbox payments. Before a commercial launch, complete owner onboarding → renter payment → return → approval → payout tests, update payment disclosures for the selected mode, configure a production webhook and its signing secret, and verify production keys/account separately. Hosting on Cloudflare alone does not make payment processing production-ready.
-
-## Repeatable release (no GitHub deployment dependency)
-
-On a trusted workstation or non-GitHub CI runner, install locked dependencies with `npm ci`. Supply these public build settings through the runner environment:
+An optional manual release uses the same Worker:
 
 ```sh
-export NG_PUBLIC_SITE_URL=https://neighborhoodgarage.net/
-export NG_PUBLIC_SUPABASE_URL=https://PRODUCTION_PROJECT.supabase.co
-export NG_PUBLIC_SUPABASE_KEY=sb_publishable_REPLACE_WITH_PRODUCTION_PUBLIC_KEY
+npm ci --engine-strict
 npm run release:prepare
-```
-
-The command runs unit/contract tests and Edge type checks, builds `dist-production/`, and creates a SHA-256 inventory in `production-release.json`. It rejects missing production config, the existing sandbox project and secret keys. It does not modify the committed sandbox config or root assets. Only explicitly enumerated public values enter the browser bundle.
-
-Review/preview this artifact and run the browser journey plus actual-domain acceptance before business launch. The automated checks do not replace provider integration tests. Preserve the artifact and manifest in the private release runner's artifact store. Then, with Cloudflare credentials injected:
-
-```sh
+# Review the tested dist-production artifact and production-release.json.
+# Inject scoped Cloudflare credentials through the runner's secret store.
 npm run release:publish
 ```
 
-Publishing verifies the inventory and uploads the exact reviewed bytes to the explicit production project/branch. It does not rebuild and cannot accidentally choose the experimental Git branch. In CI, keep prepare and publish separate, with a protected production approval between them. No production workflow is added to GitHub.
+Prepare runs unit/database checks, Edge type checks, the production build and
+browser journeys. Publish verifies both the asset inventory and Wrangler
+configuration digest, then uploads those exact bytes without rebuilding.
+Cloudflare account ID and a scoped API token must already be in the trusted
+runner environment. No Pages project is created or published by this path.
 
-For rollback, select the previous known-good production deployment in Cloudflare Pages. Frontend rollback does not undo database changes; use backward-compatible migrations and independent database backups.
+Verify the deployed commit and actual-domain asset hashes after a release. Keep
+the prior known-good Cloudflare deployment for frontend rollback; it does not undo
+database migrations. Preserve existing mail DNS and the separate GitHub sandbox.
 
-## Acceptance before DNS launch
-
-Check HTTPS, apex/www canonical behavior, config origin, static headers, email callbacks, profile, listing/photo upload, GPS/map, private chat, deletion protections and checkout/Connect callbacks. Verify the GitHub sandbox remains unchanged. Do not direct paying customers to an unverified production backend.
-
-References: https://developers.cloudflare.com/pages/get-started/direct-upload/ and https://developers.cloudflare.com/pages/configuration/custom-domains/.
+Stripe remains in sandbox. Verify signed production-project webhook delivery,
+actual-domain signup/reset emails and two-account rental/return journeys before
+accepting customers. Local provider simulations do not establish email delivery
+or real payment fulfillment. See [RENTAL-WORKFLOW.md](RENTAL-WORKFLOW.md).
