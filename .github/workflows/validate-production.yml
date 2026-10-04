@@ -1,9 +1,9 @@
 name: Validate Cloudflare production
 on:
   push:
-    branches: [production]
+    branches: [main]
   pull_request:
-    branches: [production]
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
