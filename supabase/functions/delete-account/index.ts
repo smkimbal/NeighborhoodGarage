@@ -22,7 +22,8 @@ Deno.serve(endpoint(async req=>{
   };
   await removeFolder(user.id);
  }
- // Cascades remove profile, listings, messages and credits; settled receipt FKs become null.
+ // Remove personal data. Financial receipts and append-only ledger entries retain
+ // pseudonymous account references; their profile/rental FKs become null.
  const deleted=await admin.auth.admin.deleteUser(user.id);
  if(deleted.error)throw new HttpError('Deletion could not finish. Your account is locked for deletion. Retry to finish removing it.',503,'deletion_pending');
  return {deleted:true};

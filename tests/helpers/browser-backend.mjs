@@ -21,11 +21,11 @@ export async function browserBackend(){
  const jwt=u=>[Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),Buffer.from(JSON.stringify({sub:u.id,role:'authenticated',aal:'aal1',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url'),'fixture'].join('.');
  const rpc=async(name,args={},user=null)=>{try{
   const keys=Object.keys(args),rows=await sql('select * from public.'+ident(name)+'('+keys.map((k,i)=>ident(k)+' => $'+(i+1)).join(',')+')',keys.map(k=>typeof args[k]==='object'&&args[k]!==null&&!Array.isArray(args[k])?JSON.stringify(args[k]):args[k]),user);
-  return {data:['reputation_summary','rental_availability'].includes(name)?rows:name==='process_rental_deadlines'?rows[0]?.process_rental_deadlines:rows[0]||null};
+  return {data:['reputation_summary','rental_availability'].includes(name)?rows:['process_rental_deadlines','wallet_summary','wallet_activity'].includes(name)?rows[0]?.[name]:rows[0]||null};
  }catch(error){return {error};}};
- function from(table,user=null){let method='select',values,columns='*',single=false,order='',clauses=[],params=[];
+ function from(table,user=null){let method='select',values,columns='*',single=false,order='',limit='',clauses=[],params=[];
   const param=v=>{params.push(v);return '$'+params.length;};
-  const chain={select(c='*'){columns=c;return this;},eq(k,v){clauses.push(ident(k)+'='+param(v));return this;},is(k,v){if(v!==null)throw Error('Unexpected filter');clauses.push(ident(k)+' is null');return this;},in(k,v){clauses.push(ident(k)+' in ('+v.map(param).join(',')+')');return this;},or(value){clauses.push('('+value.split(',').map(s=>{const[k,operator,...v]=s.split('.');if(operator!=='eq')throw Error('Unexpected OR');return ident(k)+'='+param(v.join('.'));}).join(' or ')+')');return this;},order(k,{ascending=true}={}){order=' order by '+ident(k)+(ascending?' asc':' desc');return this;},update(v){method='update';values=v;return this;},insert(v){method='insert';values=v;return this;},single(){single=true;return this;},then(resolve,reject){return run().then(resolve,reject);}};
+  const chain={select(c='*'){columns=c;return this;},eq(k,v){clauses.push(ident(k)+'='+param(v));return this;},is(k,v){if(v!==null)throw Error('Unexpected filter');clauses.push(ident(k)+' is null');return this;},in(k,v){clauses.push(ident(k)+' in ('+v.map(param).join(',')+')');return this;},or(value){clauses.push('('+value.split(',').map(s=>{const[k,operator,...v]=s.split('.');if(operator!=='eq')throw Error('Unexpected OR');return ident(k)+'='+param(v.join('.'));}).join(' or ')+')');return this;},limit(n){limit=' limit '+Math.max(0,Math.min(1000,Number(n)));return this;},order(k,{ascending=true}={}){order=' order by '+ident(k)+(ascending?' asc':' desc');return this;},update(v){method='update';values=v;return this;},insert(v){method='insert';values=v;return this;},single(){single=true;return this;},then(resolve,reject){return run().then(resolve,reject);}};
   async function run(){try{
    let query,returning=table==='profiles'&&user?profileFields:'*';
    if(method==='select'){
@@ -34,7 +34,7 @@ export async function browserBackend(){
     if(method==='insert')query='insert into public.'+ident(table)+'('+keys.map(ident).join(',')+') values('+encoded.map(param).join(',')+')';
     else query='update public.'+ident(table)+' set '+keys.map((k,i)=>ident(k)+'='+param(encoded[i])).join(',');
    }
-   if(clauses.length)query+=' where '+clauses.join(' and ');query+=method==='select'?order:' returning '+returning;
+   if(clauses.length)query+=' where '+clauses.join(' and ');query+=method==='select'?order+limit:' returning '+returning;
    let rows=await sql(query,params,user);
    if(columns.includes('('))rows=await Promise.all(rows.map(async row=>{
     const neighbor=async id=>(await sql('select display_name,neighborhood,city,stripe_onboarding_complete from public.profiles where id=$1',[id],user))[0];
@@ -49,9 +49,11 @@ export async function browserBackend(){
  }
  const admin={rpc,from,storage:{from:()=>({download:async path=>({data:png})})}};
  const stripe={checkout:{sessions:{list:async()=>{stripeCalls++;return {data:[...sessions.values()],has_more:false};},retrieve:async id=>{stripeCalls++;return sessions.get(id);},create:async args=>{stripeCalls++;const id='cs_fixture_'+crypto.randomUUID(),s={id,status:'open',payment_status:'unpaid',livemode:false,metadata:args.metadata,client_reference_id:args.client_reference_id,amount_total:args.line_items[0].price_data.unit_amount,currency:'usd',payment_intent:'pi_'+id,success_url:args.success_url,cancel_url:args.cancel_url,url:'http://127.0.0.1:5174/__stripe/'+id};sessions.set(id,s);return s;},expire:async id=>{stripeCalls++;sessions.get(id).status='expired';return sessions.get(id);}}}};
+ stripe.paymentIntents={retrieve:async id=>{const s=[...sessions.values()].find(s=>s.payment_intent===id);return {id,status:'succeeded',amount_received:s.amount_total,currency:'usd',livemode:false,metadata:s.metadata,latest_charge:{id:'ch_'+id,paid:true,amount:s.amount_total,amount_refunded:0,currency:'usd',livemode:false,balance_transaction:{id:'txn_'+id,fee:Math.round(s.amount_total*.029)+30,available_on:Math.floor(Date.now()/1000)}}};}};
+ stripe.v2={core:{accounts:{retrieve:async()=>({configuration:{recipient:{capabilities:{stripe_balance:{stripe_transfers:{status:'active'},payouts:{status:'active'}}}}}})}}};stripe.balance={retrieve:async()=>({available:[{currency:'usd',amount:100000}]})};stripe.transfers={list:async()=>({data:[],has_more:false}),create:async args=>({id:'tr_fixture_'+crypto.randomUUID(),...args})};
  class HttpError extends Error{constructor(message,status=400){super(message);this.status=status;}}
  const runtime={authenticate:async req=>{const user=getUser(req);if(!user)throw new HttpError('Sign in',401);return {user,admin};},checked:r=>{if(r.error)throw r.error;return r.data;},checkedUrl:s=>s,endpoint:f=>async req=>{try{return Response.json(await f(req));}catch(error){return Response.json({error:error.message},{status:error.status||400});}},HttpError,stripeClient:()=>stripe};
- const handlers={};for(const name of ['rental-booking','create-checkout','rental-action'])handlers[name]=await edgeHandler('supabase/functions/'+name+'/index.ts',runtime);
+ const handlers={};for(const name of ['rental-booking','create-checkout','rental-action','credit-funding','withdraw-credits'])handlers[name]=await edgeHandler('supabase/functions/'+name+'/index.ts',runtime);
  async function intercept(route){const req=route.request(),url=new URL(req.url()),p=url.pathname,method=req.method(),payload=req.postDataJSON?.bind(req),user=getUser(new Request(req.url(),{headers:req.headers()}));requests.push({p,method});let data={},status=200;
   try{
    if(p==='/auth/v1/signup'){const body=payload();const u=await addUser(body.email,body.data?.display_name||'');data={user:{...u,email_confirmed_at:undefined},session:null};}

@@ -12,6 +12,14 @@ Deno.serve(endpoint(async req=>{
  // Never create another transfer after Stripe's idempotency retention window.
  // Ambiguous/old requests remain held for operator reconciliation, never silently recredited.
  if(!transfer && Date.now()-new Date(w.created_at).getTime()>23*3600000)throw new HttpError('Withdrawal needs support review. Your reserved credits remain protected.',409,'withdrawal_review');
+ if(!transfer){
+  checked(await admin.rpc('credit_withdrawal_ready',{p_user:user.id,p_request:w.id}));
+  const destination=await stripe.v2.core.accounts.retrieve(w.destination,{include:['configuration.recipient']});
+  const capabilities=destination.configuration?.recipient?.capabilities?.stripe_balance;
+  if(capabilities?.stripe_transfers?.status!=='active'||capabilities?.payouts?.status!=='active')throw new HttpError('Finish bank and payout setup in Stripe before retrying this same transfer. Reserved credits remain in your account.',409,'payout_setup_required');
+  const balance=await stripe.balance.retrieve(),available=balance.available.filter(b=>b.currency==='usd').reduce((total,b)=>total+b.amount,0);
+  if(available<w.amount_cents)throw new HttpError('Stripe funds are still settling. Retry this same transfer when the platform balance is available; your credits remain reserved.',409,'funds_settling');
+ }
  transfer ||= await stripe.transfers.create({amount:w.amount_cents,currency:'usd',destination:w.destination,transfer_group:group,metadata:{withdrawal_id:w.id}},{idempotencyKey:group});
  const withdrawal=checked(await admin.from('credit_withdrawals').update({status:'paid',stripe_transfer_id:transfer.id,paid_at:new Date().toISOString()}).eq('id',w.id).select('*').single());
  return {withdrawal}; // Transfer to connected balance, not a guarantee of bank settlement.
