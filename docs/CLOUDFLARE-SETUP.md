@@ -12,7 +12,7 @@ Open Workers & Pages → neighborhoodgarage → Settings → Build.
 | Setting | Value |
 | --- | --- |
 | Git repository | smkimbal/NeighborhoodGarage |
-| Branch control → Production branch | production |
+| Branch control → Production branch | main |
 | Root directory | Repository root |
 | Build command | npm ci --engine-strict && npm run check:cloudflare |
 | Deploy command | npm run deploy |
@@ -80,14 +80,15 @@ Do not configure this domain on GitHub Pages.
 
 Cloudflare builds and hosts the application. GitHub holds source only for this
 production deployment. Keep neighborhood-garage-test and its GitHub Pages
-sandbox active. Merge reviewed changes into production; Cloudflare automatically
-builds and deploys that branch. There is no need to merge production into main.
+sandbox active. Merge reviewed changes into main. Main is the canonical production branch;
+keep neighborhood-garage-test for the test build. Set the Cloudflare production
+branch to main so future commits deploy automatically.
 Use Cloudflare deployment rollback for a bad frontend release; database changes
 need a separate recovery plan.
 
 ## Pages alternative
 
-If creating a Pages project instead, connect the production branch, use the same
+If creating a Pages project instead, connect the main branch, use the same
 build command/environment, set output directory dist-production, and omit a deploy
 command. Do not combine those Pages settings with the existing Workers build.
 The release:prepare/release:publish scripts publish exact reviewed assets to the
