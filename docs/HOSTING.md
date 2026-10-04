@@ -2,14 +2,14 @@
 
 | Environment | Host | Backend | Source branch |
 | --- | --- | --- | --- |
-| Production | Cloudflare Worker `neighborhoodgarage`, https://neighborhoodgarage.net/ | Supabase `zbbespojxxoheavodtqs`; Stripe sandbox | `production` |
+| Production | Cloudflare Worker `neighborhoodgarage`, https://neighborhoodgarage.net/ | Supabase `zbbespojxxoheavodtqs`; Stripe sandbox | `main` |
 | Sandbox | GitHub Pages, https://smkimbal.github.io/NeighborhoodGarage/ | Supabase `ilfpugydxlzmmxjfrmrv`; Stripe sandbox | `neighborhood-garage-test` |
 
 Cloudflare Workers Builds installs locked dependencies, validates and builds the
 production frontend, then runs the pinned Wrangler deploy command. The committed
 `wrangler.jsonc` uploads only `dist-production`. Follow
 [CLOUDFLARE-SETUP.md](CLOUDFLARE-SETUP.md) for the existing Worker's settings.
-GitHub Actions validates `production`; its Pages deployment is restricted to the
+GitHub Actions validates `main`; its Pages deployment is restricted to the
 sandbox branch. Root sandbox assets and its public configuration remain separate.
 
 The production build includes only the production public Supabase URL/key and
