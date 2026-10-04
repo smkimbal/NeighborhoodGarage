@@ -27,6 +27,7 @@ export function stripeClient(){
  const key=Deno.env.get('STRIPE_SECRET_KEY');
  if(!key)throw new HttpError('Stripe is not configured. Add STRIPE_SECRET_KEY from the Neighborhood Garage sandbox to Supabase Edge Function secrets.',503,'stripe_not_configured');
  const mode=Deno.env.get('STRIPE_MODE')||'sandbox';
+ if(!['sandbox','live'].includes(mode))throw new HttpError('Set STRIPE_MODE to sandbox or live before creating a payment.',503,'stripe_mode_mismatch');
  if((mode==='sandbox'&&!/^(sk|rk)_test_/.test(key))||(mode==='live'&&!/^(sk|rk)_live_/.test(key)))throw new HttpError('Stripe key and STRIPE_MODE do not match. This application currently expects '+mode+' credentials.',503,'stripe_mode_mismatch');
  return new Stripe(key,{apiVersion:'2026-08-26.dahlia',httpClient:Stripe.createFetchHttpClient(),maxNetworkRetries:2,timeout:15000});
 }
