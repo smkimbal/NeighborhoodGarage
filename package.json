@@ -8,7 +8,7 @@
     "build": "node scripts/build.mjs",
     "test": "node --check src/app.js && node --check src/rental-workflow.js && node --check src/supabase.js && node --test tests/*.test.mjs",
     "test:browser": "node tests/walkthrough.browser.mjs && node tests/rental-workflow.browser.mjs && node tests/operator-notifications.browser.mjs",
-    "check:edge": "deno check supabase/functions/*/index.ts",
+    "check:edge": "deno check supabase/functions/*/index.ts supabase/functions/_shared/stripe-sync-sandbox.ts && node --check supabase/functions/stripe-worker/index.js && node --check supabase/functions/stripe-worker/installed-worker.js",
     "release:prepare": "node scripts/release-production.mjs prepare",
     "release:publish": "node scripts/release-production.mjs publish",
     "build:cloudflare": "node scripts/build-cloudflare.mjs",
@@ -33,10 +33,14 @@
     "@stripe/sync-engine": "1.0.32",
     "deno": "2.6.8",
     "esbuild": "0.25.12",
+    "papaparse": "5.4.1",
+    "pg": "8.23.0",
     "playwright": "1.63.0",
+    "postgres": "3.4.9",
     "stripe": "22.6.0",
-    "supabase": "2.81.3",
-    "wrangler": "4.145.0"
+    "supabase": "2.119.0",
+    "wrangler": "4.145.0",
+    "yesql": "7.0.0"
   },
   "packageManager": "npm@10.9.9"
 }

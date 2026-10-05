@@ -1,0 +1,9 @@
+{
+  "imports": {
+    "npm:stripe": "npm:stripe@22.6.0",
+    "npm:pg": "npm:pg@8.23.0",
+    "npm:postgres": "npm:postgres@3.4.9",
+    "npm:yesql": "npm:yesql@7.0.0",
+    "npm:papaparse": "npm:papaparse@5.4.1"
+  }
+}

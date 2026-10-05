@@ -24,6 +24,8 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
       - run: npm ci --engine-strict
+      - name: Reject high and critical dependency advisories
+        run: npm audit --audit-level=high
       - run: npm run check:cloudflare
         env:
           NG_VALIDATION_BUILD: true

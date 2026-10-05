@@ -1,97 +1,89 @@
-> Current sandbox work and activation steps: [docs/SANDBOX-OPERATIONS.md](docs/SANDBOX-OPERATIONS.md).
-
-> October 4 hardening work: [checkpoint](docs/HARDENING-CHECKPOINT.md), [release controls](docs/RELEASE-CONTROLS.md), and [production roadmap](docs/PRODUCTION-ROADMAP.md). Current validation and backend rollout are recorded in [HARDENING-VALIDATION.md](docs/HARDENING-VALIDATION.md). Historical reports cover their original releases only.
-
-> Garage photo viewing and free local label/barcode identification: [usage and verification](docs/LOCAL-PHOTO-SCAN.md).
-
-# Production deployment
-
-This branch deploys to the Cloudflare Worker at `https://neighborhoodgarage.net/` with its separate production Supabase project. Start with [the setup instructions](docs/CLOUDFLARE-SETUP.md). Cloudflare hosts the production website; the test branch remains the GitHub Pages sandbox. Use Node 22 or newer and run `NG_VALIDATION_BUILD=true npm run check:cloudflare` to validate the production build.
-
 # Neighborhood Garage
 
-Neighborhood Garage is a production-oriented peer-to-peer tool sharing web app backed by Supabase.
+A neighborhood tool-sharing application hosted at [neighborhoodgarage.net](https://neighborhoodgarage.net/), with Supabase accounts, private messaging and Stripe sandbox payments.
 
-See the [latest walkthrough](docs/WALKTHROUGH.md), [validation results](docs/VALIDATION.md), the [restoration checkpoint](docs/CHECKPOINT.md), and [operations/setup](docs/OPERATIONS.md). Stripe sandbox credentials and Connect were configured during the September 29 verification. The combined Stripe Sync webhook is deployed; a complete rental-to-payout sandbox journey remains to be validated. Tool identification runs locally in the browser; external AI photo processing remains disabled. See [hosting readiness](docs/HOSTING.md).
+## Production and sandbox
 
-## Live architecture
+| Environment | Source branch | Website | Supabase project |
+| --- | --- | --- | --- |
+| Production application; payments remain sandbox | `main` | https://neighborhoodgarage.net/ | `zbbespojxxoheavodtqs` |
+| Experimentation sandbox | `neighborhood-garage-test` | https://smkimbal.github.io/NeighborhoodGarage/ | `ilfpugydxlzmmxjfrmrv` |
 
-- **Frontend:** bundled, static mobile-first ES modules, deployable to GitHub Pages.
-- **Auth:** Supabase Auth with email/password, email verification, password reset, persistent sessions, and optional TOTP MFA. During sandbox testing, users without a verified factor can continue at `aal1`; once a user enables a verified authenticator factor, RLS and Storage require an `aal2` session for that account.
-- **Database:** Supabase Postgres with RLS on every exposed application table.
-- **Storage:** private `tool-photos`, `return-photos`, and `avatars` buckets with user/participant policies.
-- **Realtime:** Supabase Realtime for private messages and participant-scoped rental updates, including owner return-review prompts.
-- **Payments:** Stripe Checkout created by the `create-checkout` Edge Function; Stripe webhooks finalize paid rentals.
-- **Marketplace payouts:** Stripe Connect onboarding is handled by `connect-account`. Owner proceeds are held on the platform and transferred only after the owner approves the returned tool.
-- **Privileged rental transitions:** `rental-action` validates renter/owner identity before pickup, return, approval, dispute, owner payout, and deposit-credit issuance.
-- **Credits:** append-only `credit_ledger`; approved deposits become Tool Share Credits.
+Cloudflare builds and hosts the production application. GitHub holds its source and validation checks; GitHub Pages hosts only the separate sandbox. Preserve the current branch arrangement.
 
-There is no Demo Mode, fake checkout, seeded marketplace inventory, localStorage wallet, or simulated account system.
+The existing test branch adds sandbox operator access, private notification previews and password screening. Setup status and provider controls are recorded in [sandbox operations](docs/SANDBOX-OPERATIONS.md).
 
-## Supabase project
+See [Cloudflare setup](docs/CLOUDFLARE-SETUP.md), [release controls](docs/RELEASE-CONTROLS.md), [hardening validation](docs/HARDENING-VALIDATION.md), and the [October 5 continuation checkpoint](docs/CONTINUATION-CHECKPOINT-2026-10-05.md). Historical verification reports cover their original releases.
 
-Production project: `zbbespojxxoheavodtqs`. Sandbox project: `ilfpugydxlzmmxjfrmrv`.
+## User workflow
 
-The browser uses only the project URL, publishable key, and canonical public Auth callback in `config.js`. Those values are intentionally public. Never place Supabase secret keys, Stripe secret keys, or webhook secrets in `config.js` or any GitHub Pages asset.
+- Create an account, confirm the email, complete a profile and optionally enroll authenticator MFA. Once enrolled, MFA is required for protected account, database and storage access.
+- Browse nearby tools in a list or map, read reviews and earned badges, and coordinate privately with the owner.
+- Request today’s or a future reservation with pickup and return windows. The owner approves before the renter schedules pickup and pays.
+- Use the permanent item website QR for pickup and return confirmations. Private agreed locations include Google Maps and Apple Maps directions.
+- Return with a condition photo. The owner confirms receipt, inspects the item, approves the deposit or documents a deduction. Inspection holds retain clear next actions; physical corrections and disputes have an audit history.
+- Owners see requested and confirmed bookings on the garage timeline. Currently rented tools remain discoverable with their expected return.
+- Tap or click a centered tool preview for listing details and the full-image viewer. Local identification uses free browser classification, OCR and barcode decoding; suggestions require review.
 
-## Required Stripe configuration
+Details: [rental workflow](docs/RENTAL-WORKFLOW.md), [free local photo identification](docs/LOCAL-PHOTO-SCAN.md), [credits and reputation](docs/CREDITS-AND-REPUTATION.md).
 
-The deployed payment functions fail closed until real Stripe credentials are configured in Supabase Edge Function secrets:
+## Backend and money
 
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET` only for standalone webhook verification; the installed Stripe Sync integration uses its managed signing secret.
+The static ES-module frontend calls authenticated Supabase Edge Functions. PostgreSQL RLS restricts private profiles, rentals, messages, ledgers and evidence. Photos use private storage and the validated upload endpoint; realtime subscriptions retain participant access controls.
 
-Configure a Stripe webhook endpoint for:
+Tool Share Credits fund rentals and extensions without a new Stripe transaction when they cover the full amount. Partial payments send only the remaining new-money principal and its disclosed sandbox processing fee to Stripe Checkout. Processing fees never become spendable credits. The 5% rental platform fee is separate.
 
-`https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook`
+Approved deposits and net owner earnings stay in the internal ledger. Approval does **not** automatically transfer owner funds to Stripe. Cash-out is a separate, explicit operation with MFA, settlement and balance checks. Current sandbox fee examples and live-launch limits are documented in [release controls](docs/RELEASE-CONTROLS.md).
 
-Subscribe at minimum to:
+Only server-side handlers and restricted financial RPCs can change rental or wallet state. Checkout return URLs are not payment proof: fulfillment verifies Stripe status, amounts, project references and signatures, with replay protection and scheduled reconciliation.
 
-- `checkout.session.completed`
-- `checkout.session.async_payment_succeeded`
-- `checkout.session.expired`
-- `checkout.session.async_payment_failed`
-- `charge.refunded`
-- All `charge.dispute.*` events
+## Correct Auth redirects
 
-No payment secrets are committed to this repository.
+Configure each Supabase project independently:
 
-## Run locally
+| Project | Auth Site URL and allowed public redirect |
+| --- | --- |
+| Production | `https://neighborhoodgarage.net/` |
+| Sandbox | `https://smkimbal.github.io/NeighborhoodGarage/` |
+
+The production project’s default email callback must use the production domain. The frontend build supplies its canonical public callback. Test signup confirmation and password recovery with an actual inbox; a mocked browser test or administratively confirmed identity does not prove email delivery.
+
+The browser receives only the project URL, publishable key and public callback in `config.js`. Supabase service credentials, Stripe secret keys and webhook signing secrets belong only in protected backend configuration.
+
+## Stripe sandbox configuration
+
+Production currently uses the **Neighborhood Garage sandbox**:
+
+- Set `STRIPE_MODE=sandbox` and the sandbox test key as `STRIPE_SECRET_KEY` in production Supabase.
+- Endpoint `we_1UMasLRsHH5z9atPyjeqkeJQ` targets `https://zbbespojxxoheavodtqs.supabase.co/functions/v1/stripe-webhook`.
+- Production signature verification uses the encrypted Vault secret `ng_stripe_webhook_signing_secret`. `STRIPE_WEBHOOK_SECRET` in Edge secrets remains a supported override.
+- Subscribe to Checkout completion, expiration and asynchronous success/failure, `charge.refunded`, and all `charge.dispute.*` events required by the handler.
+
+The original sandbox project’s managed Stripe Sync setup is separate. Do not copy its callback, signing mode or database configuration into production.
+
+## Run and validate
+
+Use Node 22 or newer and the committed npm lockfile.
 
 ```sh
-npm ci
+npm ci --engine-strict
 npm run dev
-# http://localhost:5173
-# Edge Functions also allow http://localhost:3000 for the current preview workflow
+# http://localhost:5173 — default sandbox build
+
 npm test
 npm run check:edge
-npm run build
+NG_VALIDATION_BUILD=true npm run build:cloudflare
+npx playwright install chromium
+NG_TEST_DIST=dist-production npm run test:browser
+npm run deploy -- --dry-run
 ```
 
-## Security model
+`NG_VALIDATION_BUILD=true` is for unpublished validation builds only. Native Cloudflare production build/deploy scripts wait for successful validation of the exact `main` commit and verify the matching backend release version. Do not set the validation flag in production Dashboard settings.
 
-All application tables have RLS enabled. Direct browser writes are intentionally limited:
+The optional trusted manual release path is `npm run release:prepare` followed by `npm run release:publish`; see [release controls](docs/RELEASE-CONTROLS.md) for credentials, attestations and artifact verification.
 
-- users can update only their profile;
-- owners can manage only their tools;
-- rental participants can read only rentals they participate in;
-- users can read only their credit ledger;
-- message participants can read their conversations and users can only send as themselves;
-- only the renter of a completed rental can create its review;
-- payment events have no client-access policy;
-- rental creation and status/credit mutations happen in authenticated Edge Functions using server-side credentials.
+## Deployment and operations
 
-Storage upload paths begin with the authenticated user's UUID. Return-image reads are limited to the uploader or participants in the rental referencing that object. Referenced evidence cannot be deleted by the uploader.
+Deploy matching migrations and Edge Functions before their frontend, reconcile existing migration history by name/content, and preserve financial evidence. Never blindly replay the initial schema against production.
 
-## Production checklist
-
-1. Preserve the configured sandbox credentials and combined Stripe Sync webhook. The currently connected Stripe account is a **sandbox**; use a separate production database/project and live keys before accepting real customer payments. Set `STRIPE_MODE=live` only in that production environment; sandbox account and payment IDs cannot be reused.
-2. Set Supabase Auth **Site URL** to `https://smkimbal.github.io/NeighborhoodGarage/` and add that same URL to **Redirect URLs**. Local preview URLs (`http://localhost:5173` and/or `http://localhost:3000`) may remain allowlisted for development, but signup confirmation and password recovery intentionally use the canonical public callback.
-3. Configure a custom SMTP provider before meaningful public traffic; Supabase's default mail service is intended for development/testing.
-4. Enable CAPTCHA/bot protection for signup and password reset before public launch.
-5. Add legal terms, privacy policy, cancellation/refund rules, support/dispute administration, and any real insurance terms before representing coverage to users.
-6. Complete the Stripe Connect platform profile/liability setup and test connected-account onboarding, payment, return approval, transfer, payout, refund, and dispute scenarios end-to-end in Stripe sandbox before moving to live mode.
-
-## Schema
-
-The checked-in migrations under `supabase/migrations/` mirror the live project schema and policies used by this branch.
+The [production roadmap](docs/PRODUCTION-ROADMAP.md) records remaining operator, notification, email/device, retention, insurance and live-payment decisions. Live new external-payment and withdrawal quotes remain blocked until the approved fee and launch policy is implemented. Stripe remains sandbox; this application has not enabled real-money charging.

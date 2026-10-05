@@ -1,5 +1,10 @@
 # Sandbox operations checkpoint — October 5, 2026
 
+Continuation status and the remaining provider activation steps are recorded in
+[SANDBOX-RESUME-CHECKPOINT.md](SANDBOX-RESUME-CHECKPOINT.md). This document records
+the original checkpoint; later main documentation and the interrupted dependency
+and Stripe Sync patches are covered by that continuation.
+
 This work uses the existing `neighborhood-garage-test` branch and Supabase sandbox `ilfpugydxlzmmxjfrmrv`. Production `main` remains at `dc3ad3faaabbef627c5fa6f24ca3d6c8c4dbff70`, with its last Node 22/24 validation and Cloudflare release passing. No additional remote branch is created. This checkpoint does not authorize a paid upgrade, live Stripe charges or real outbound messages.
 
 ## Checkpoint 1: inventory
