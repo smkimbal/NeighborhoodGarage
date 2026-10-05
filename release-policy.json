@@ -1,5 +1,5 @@
 {
-  "backendVersion": "2026-10-04-hardening-1",
+  "backendVersion": "2026-10-05-sandbox-ops-1",
   "productionBranch": "main",
   "sandboxBranch": "neighborhood-garage-test",
   "minimumNodeMajor": 22,

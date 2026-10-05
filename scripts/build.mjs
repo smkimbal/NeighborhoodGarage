@@ -15,8 +15,10 @@ if (publicSiteUrl && deployment.target === 'sandbox') {
   await writeFile(`${out}/config.js`, config + '\nwindow.NG_CONFIG.authRedirectUrl = ' + JSON.stringify(publicSiteUrl) + ';\n');
 }
 const publicConfig=await readFile(`${out}/config.js`,'utf8');
+if(!/['"]?supabaseKey['"]?\s*:\s*['"]sb_publishable_[A-Za-z0-9_-]+['"]/.test(publicConfig)||/\b(sb_secret_|(?:sk|rk)_(?:test|live)_|whsec_)/.test(publicConfig))throw Error('Browser configuration must contain only a public Supabase publishable key.');
 const databaseOrigin=deployment.config?.supabaseUrl||publicConfig.match(/https:\/\/[a-z0-9]+\.supabase\.co/)?.[0];
 if(!databaseOrigin)throw Error('Cannot restrict network policy without a database origin.');
+if(deployment.target==='sandbox' && databaseOrigin!=='https://ilfpugydxlzmmxjfrmrv.supabase.co')throw Error('Sandbox builds must use the sandbox database.');
 const headers=(await readFile('_headers','utf8')).replaceAll('https://*.supabase.co',databaseOrigin).replaceAll('wss://*.supabase.co',databaseOrigin.replace('https:','wss:'));
 await writeFile(`${out}/_headers`,headers);
 await build({entryPoints:['src/app.js'],bundle:true,minify:true,format:'esm',splitting:true,target:['es2022'],outdir:`${out}/assets`,entryNames:'app',chunkNames:'chunks/[name]-[hash]',loader:{'.png':'dataurl'},assetNames:'[name]-[hash]',sourcemap:false});

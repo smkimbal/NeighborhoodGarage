@@ -1,0 +1,11 @@
+{
+  "project": "ilfpugydxlzmmxjfrmrv",
+  "siteUrl": "https://smkimbal.github.io/NeighborhoodGarage/",
+  "emailConfirmation": true,
+  "minimumPasswordLength": 12,
+  "requireCurrentPasswordForChanges": true,
+  "requireReauthenticationForChanges": true,
+  "mfa": "optional for users; required for operator actions and withdrawals",
+  "nativeLeakedPasswordProtection": "requires Pro; pending, no plan upgrade authorized",
+  "applicationBreachScreening": "five-character SHA-1 prefix, padding, on submit; client-side only"
+}

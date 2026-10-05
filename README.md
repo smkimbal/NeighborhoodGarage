@@ -1,3 +1,5 @@
+> Current sandbox work and activation steps: [docs/SANDBOX-OPERATIONS.md](docs/SANDBOX-OPERATIONS.md).
+
 > October 4 hardening work: [checkpoint](docs/HARDENING-CHECKPOINT.md), [release controls](docs/RELEASE-CONTROLS.md), and [production roadmap](docs/PRODUCTION-ROADMAP.md). Current validation and backend rollout are recorded in [HARDENING-VALIDATION.md](docs/HARDENING-VALIDATION.md). Historical reports cover their original releases only.
 
 > Garage photo viewing and free local label/barcode identification: [usage and verification](docs/LOCAL-PHOTO-SCAN.md).

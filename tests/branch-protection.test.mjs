@@ -1,0 +1,10 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {branchProtection} from '../scripts/configure-branch-protection.mjs';
+const actual=policy=>({...policy,enforce_admins:{enabled:policy.enforce_admins},allow_force_pushes:{enabled:false},allow_deletions:{enabled:false},required_conversation_resolution:{enabled:true}});
+test('branch protection defaults to a reviewable plan without network access',async()=>{const plan=await branchProtection({request:()=>{throw Error('Unexpected write');}});assert.equal(plan.applied,false);assert.deepEqual(plan.plan.map(p=>p.branch),['main','neighborhood-garage-test']);assert.equal(plan.plan[0].policy.required_pull_request_reviews.required_approving_review_count,0);assert.equal(plan.plan[1].policy.required_status_checks,null);await assert.rejects(()=>branchProtection({apply:true}),/Administration:write/);});
+test('protection preflights both branches, applies exact checks and verifies the resulting policies',async()=>{
+ const saved=new Map(),calls=[];const result=await branchProtection({apply:true,token:'fixture-token',request:async(url,o={})=>{assert.equal(o.redirect,'error');assert.equal(o.headers.Authorization,'Bearer fixture-token');const branch=url.split('/').at(-2);calls.push(o.method||'GET');if(o.method==='PUT'){const policy=JSON.parse(o.body);saved.set(branch,actual(policy));return Response.json(saved.get(branch));}return saved.has(branch)?Response.json(saved.get(branch)):new Response('',{status:404});}});
+ assert.equal(result.applied,true);assert.deepEqual(calls,['GET','GET','PUT','GET','PUT','GET']);assert(saved.get('main').required_status_checks.checks.every(c=>c.app_id===15368));assert.equal(saved.get('main').required_status_checks.strict,true);
+});
+test('an unreadable or weaker existing rule stops all writes',async()=>{
+ for(const status of [403,200]){let writes=0;await assert.rejects(()=>branchProtection({apply:true,token:'fixture-token',request:async(url,o={})=>{if(o.method==='PUT')writes++;return status===200?Response.json({enforce_admins:{enabled:false}}):new Response('',{status});}}));assert.equal(writes,0);}
+});

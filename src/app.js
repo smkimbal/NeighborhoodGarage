@@ -6,6 +6,7 @@ import {createWalletInterface} from './wallet.js';
 import L from 'leaflet';
 import {uploadPhoto} from './photo-upload.js';
 import {renderSupport} from './support.js';
+import {checkNewPassword} from './password-security.js';
 import {chronologicalPages,historyPage} from './pagination.js';
 import {createRentalInterface,activeBooking,availabilityLabel} from './rental-workflow.js';
 import {classifyTool,removePhotoBackground} from './local-vision.js';
@@ -29,7 +30,7 @@ const $=s=>document.querySelector(s);
 const app=$('#app');
 const modal=$('#modal');
 const toastEl=$('#toast');
-let session=null,user=null,profile=null,tools=[],rentals=[],extensions=[],rentalEvents=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null,passwordRecovery=false;
+let session=null,user=null,profile=null,tools=[],rentals=[],extensions=[],rentalEvents=[],messages=[],reviews=[],credits=0,route='/',realtimeChannel=null,passwordRecovery=false,unreadNotices=0;
 const categories=['Power tools','Outdoor','Home & DIY','Garden','Automotive','Other'];
 const bookingUI=createRentalInterface({supabase,invoke,state:()=>({user,tools,rentals,extensions,events:rentalEvents,reviews,credits}),route:()=>route,baseUrl:authRedirectUrl,nav,refresh,toast,showModal,closeModal,setBusy,showListingDetails,reviewDialog,trustTag,getLocation,modal,stopCamera,loadOlderRentals,ensureRental,setCamera:stream=>{cameraStream=stream;}});
 
@@ -98,7 +99,7 @@ async function refresh({quiet=false}={}){
   if(!quiet)foregroundRequests++;
   const refreshId=++refreshSequence,accountId=user?.id;
   const isCurrent=()=>refreshId===refreshSequence&&user?.id===accountId;
-  if(!user){rememberHandoff();closeModal();chatDrafts.clear();nearbyLocation=null;profile=null;tools=[];rentals=[];extensions=[];rentalEvents=[];messages=[];reviews=[];credits=0;reputationById.clear();unsubscribeRealtime();render();if(!quiet)foregroundRequests--;return;}
+  if(!user){rememberHandoff();closeModal();chatDrafts.clear();nearbyLocation=null;profile=null;tools=[];rentals=[];extensions=[];rentalEvents=[];messages=[];reviews=[];credits=0;unreadNotices=0;reputationById.clear();unsubscribeRealtime();render();if(!quiet)foregroundRequests--;return;}
   try{
     const factors=await supabase.auth.mfa.listFactors();
     if(factors.error)throw factors.error;
@@ -112,16 +113,17 @@ async function refresh({quiet=false}={}){
       renderPasswordRecovery();return;
     }
     if(verifiedFactors.length&&aal.data?.currentLevel!=='aal2'){renderMfaChallenge();return;}
-    const version=await supabase.rpc('release_version');if(version.error||version.data!=='2026-10-04-hardening-1')throw Error('This app update is waiting for its backend release. Please try again shortly.');
-    const [p,t,r,m,v,c]=await Promise.all([
+    const version=await supabase.rpc('release_version');if(version.error||version.data!=='2026-10-05-sandbox-ops-1')throw Error('This app update is waiting for its backend release. Please try again shortly.');
+    const [p,t,r,m,v,c,n]=await Promise.all([
       supabase.from('profiles').select('id,display_name,neighborhood,city,state,bio,avatar_path,created_at,updated_at,stripe_onboarding_complete').eq('id',accountId).single(),
       loadTools(),
       rentalPage(),
       messagePage(),
       chronologicalPages(()=>supabase.from('reviews').select('*,author:profiles!reviews_author_id_fkey(display_name)').eq('author_id',accountId),false),
-      supabase.rpc('wallet_summary')
+      supabase.rpc('wallet_summary'),
+      supabase.rpc('notification_summary')
     ]);
-    for(const result of [p,t,r,m,v,c]) if(result.error) throw result.error;
+    for(const result of [p,t,r,m,v,c,n]) if(result.error) throw result.error;
     if(!isCurrent())return;
     const nextTools=t.data||[],nextMessages=m.data||[];
     let nextRentals=r.data||[],nextCredits=c.data||{},nextExtensions=await relatedRows('rental_extensions',(r.data||[]).map(r=>r.id)),nextEvents=await relatedRows('rental_events',(r.data||[]).map(r=>r.id));
@@ -133,12 +135,14 @@ async function refresh({quiet=false}={}){
     if(!isCurrent())return;
     const nextReputation=await hydrateReputation(accountId,nextTools,nextMessages,nextRentals);
     if(!isCurrent())return;
-    profile=p.data;tools=nextTools;rentals=nextRentals;extensions=nextExtensions;rentalEvents=nextEvents;messages=nextMessages;reviews=v.data||[];credits=Number(nextCredits.balance_cents||0);
+    profile=p.data;tools=nextTools;rentals=nextRentals;extensions=nextExtensions;rentalEvents=nextEvents;messages=nextMessages;reviews=v.data||[];credits=Number(nextCredits.balance_cents||0);unreadNotices=Number(n.data?.unread||0);updateNoticeBadge();
     reputationById.clear();for(const [id,metrics] of nextReputation)reputationById.set(id,metrics);
     subscribeRealtime();
     if(!quiet||['/garage','/rentals'].includes(route.split('?')[0])||route.startsWith('/rental/'))render();
-  }catch(e){if(!isCurrent()||quiet)return;app.innerHTML=`<main class="shell"><div class="alert error"><h2>Could not load your account</h2><p>${esc(errorText(e))}</p><button id="retry-account">Try again</button> <button id="signout-error">Sign out</button></div></main>`;$('#retry-account').onclick=()=>refresh();$('#signout-error').onclick=()=>supabase.auth.signOut();const retryDelete=document.createElement('button');retryDelete.textContent='Finish account deletion';retryDelete.onclick=deleteAccountDialog;app.querySelector('.alert').append(retryDelete)}finally{if(!quiet)foregroundRequests--;}
+  }catch(e){if(!isCurrent()||quiet)return;if(route.split('?')[0]==='/support'){renderSupportFallback();return;}app.innerHTML=`<main class="shell"><div class="alert error"><h2>Could not load your account</h2><p>${esc(errorText(e))}</p><button id="retry-account">Try again</button> <button id="signout-error">Sign out</button></div></main>`;$('#retry-account').onclick=()=>refresh();$('#signout-error').onclick=()=>supabase.auth.signOut();const retryDelete=document.createElement('button');retryDelete.textContent='Finish account deletion';retryDelete.onclick=deleteAccountDialog;app.querySelector('.alert').append(retryDelete);const supportButton=document.createElement('button');supportButton.textContent='Contact support';supportButton.onclick=()=>{route='/support';history.replaceState(null,'',location.href.split('#')[0]+'#/support');renderSupportFallback();};app.querySelector('.alert').append(supportButton)}finally{if(!quiet)foregroundRequests--;}
 }
+
+function renderSupportFallback(){app.innerHTML='<main class="shell"><button id="support-signout">Sign out</button><section id="support-root"></section></main>';$('#support-signout').onclick=()=>supabase.auth.signOut();renderSupport($('#support-root'),{invoke,toast});}
 
 async function hydrateReputation(accountId,loadedTools,loadedMessages,loadedRentals){
   const result=new Map();
@@ -176,8 +180,11 @@ function subscribeRealtime(){
   const accountId=user.id;
   realtimeChannel=supabase.channel('ng-marketplace').on('postgres_changes',{event:'INSERT',schema:'public',table:'messages'},async()=>{const result=await messagePage();if(!result.error&&user?.id===accountId){messages=result.data||[];if(route.startsWith('/messages')&&!modal.open){renderMessages($('#content'));}}});
   for(const table of ['rentals','tools','reviews','rental_extensions','rental_events'])realtimeChannel.on('postgres_changes',{event:'*',schema:'public',table},payload=>{if(table==='rentals'&&payload.new?.owner_id===user?.id&&payload.new?.status==='review')toast('A tool was returned. Open My garage to review its condition.');clearTimeout(marketplaceTimer);marketplaceTimer=setTimeout(()=>refresh({quiet:true}),350);});
+  realtimeChannel.on('postgres_changes',{event:'*',schema:'public',table:'notifications',filter:'user_id=eq.'+accountId},()=>refreshNotices().catch(()=>{}));
   realtimeChannel.subscribe();
 }
+async function refreshNotices(){const id=user?.id;if(!id)return;const {data,error}=await supabase.rpc('notification_summary');if(error)throw error;if(user?.id!==id)return;unreadNotices=Number(data?.unread||0);updateNoticeBadge();}
+function updateNoticeBadge(){const badge=$('#notice-badge');if(badge){badge.hidden=!unreadNotices;badge.textContent=unreadNotices>99?'99+':String(unreadNotices);badge.setAttribute('aria-label',unreadNotices+' unread notifications');}}
 function unsubscribeRealtime(){clearTimeout(marketplaceTimer);if(realtimeChannel){supabase.removeChannel(realtimeChannel);realtimeChannel=null}}
 
 function render(){
@@ -197,7 +204,7 @@ function render(){
   else if(path==='/garage')renderGarage(content);
   else if(path==='/messages')renderMessages(content);
   else if(path==='/profile')renderProfile(content);
-  else if(path==='/support')renderSupport(content,{invoke,toast});
+  else if(path==='/support')renderSupport(content,{invoke,toast,onRead:refreshNotices});
   else if(path.startsWith('/neighbor/'))renderNeighbor(content,path.split('/')[2]);
   else content.innerHTML='<div class="empty"><h2>Page not found</h2><a class="button" href="#/">Back home</a></div>';
   bindGlobal();
@@ -212,17 +219,17 @@ function render(){
 }
 
 function layout(){
-  return `<header class="topbar"><a class="brand" href="#/"><img src="./favicon.svg" alt=""><span>Neighborhood<br><b>Garage</b></span></a><nav>${[['/','Explore'],['/rentals','Rentals'],['/garage','My garage'],['/messages','Messages']].map(([p,l])=>`<a href="#${p}" class="${route.split('?')[0]===p?'active':''}">${l}</a>`).join('')}</nav><div class="top-actions"><button class="ghost" data-go="/lend">List a tool</button><button class="avatar" data-go="/profile" aria-label="Profile">${esc(initials(profile?.display_name))}</button></div></header><main id="content" class="shell"></main><footer>Neighborhood Garage · Share more. Buy less. · <a href="#/support">Support & notifications</a></footer>`;
+  return `<header class="topbar"><a class="brand" href="#/"><img src="./favicon.svg" alt=""><span>Neighborhood<br><b>Garage</b></span></a><nav>${[['/','Explore'],['/rentals','Rentals'],['/garage','My garage'],['/messages','Messages']].map(([p,l])=>`<a href="#${p}" class="${route.split('?')[0]===p?'active':''}">${l}</a>`).join('')}</nav><div class="top-actions"><button class="ghost" data-go="/lend">List a tool</button><button class="avatar" data-go="/profile" aria-label="Profile">${esc(initials(profile?.display_name))}</button></div></header><main id="content" class="shell"></main><footer>Neighborhood Garage · Share more. Buy less. · <a href="#/support">Support & notifications <span id="notice-badge" class="notice-badge" aria-label="Unread notifications" ${unreadNotices?'':'hidden'}>${unreadNotices>99?'99+':unreadNotices}</span></a></footer>`;
 }
 function bindGlobal(){document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>nav(b.dataset.go))}
 
 function renderAuth(){
   if(route.startsWith('/handoff/')&&!authNotice)authNotice='Sign in to open this item’s pickup or return confirmation. Your item link will be kept.';
-  app.innerHTML=`<main class="auth-page"><section class="auth-hero"><div class="eyebrow">Neighbors helping neighbors</div><h1>The tool you need may already be next door.</h1><p>Borrow useful tools nearby, lend what you own, and keep deposits moving as Tool Share Credits.</p><div class="trust-row"><span>Secure accounts</span><span>Private uploads</span><span>Protected checkout</span></div></section><section class="auth-card"><div class="brand auth-brand"><img src="./favicon.svg" alt=""><span>Neighborhood <b>Garage</b></span></div><div class="tabs"><button class="active" data-auth-tab="signin">Sign in</button><button data-auth-tab="signup">Create account</button></div><p id="auth-notice" class="panel-lite ${authNotice?'':'hidden'}" role="status">${esc(authNotice)}</p><button id="resend-confirmation" class="linkish ${pendingEmail?'':'hidden'}" type="button">Resend confirmation email</button><form id="signin" class="stack"><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" minlength="8" required></label><button class="primary">Sign in</button><button type="button" class="linkish" id="reset-password">Forgot password?</button></form><form id="signup" class="stack hidden"><label>Your name<input name="displayName" maxlength="60" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="new-password" minlength="12" required></label><p class="fine">Use at least 12 characters. You’ll verify your email before using the marketplace.</p><button class="primary">Create account</button></form></section></main>`;
+  app.innerHTML=`<main class="auth-page"><section class="auth-hero"><div class="eyebrow">Neighbors helping neighbors</div><h1>The tool you need may already be next door.</h1><p>Borrow useful tools nearby, lend what you own, and keep deposits moving as Tool Share Credits.</p><div class="trust-row"><span>Secure accounts</span><span>Private uploads</span><span>Protected checkout</span></div></section><section class="auth-card"><div class="brand auth-brand"><img src="./favicon.svg" alt=""><span>Neighborhood <b>Garage</b></span></div><div class="tabs"><button class="active" data-auth-tab="signin">Sign in</button><button data-auth-tab="signup">Create account</button></div><p id="auth-notice" class="panel-lite ${authNotice?'':'hidden'}" role="status">${esc(authNotice)}</p><button id="resend-confirmation" class="linkish ${pendingEmail?'':'hidden'}" type="button">Resend confirmation email</button><form id="signin" class="stack"><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="current-password" minlength="8" required></label><button class="primary">Sign in</button><button type="button" class="linkish" id="reset-password">Forgot password?</button></form><form id="signup" class="stack hidden"><label>Your name<input name="displayName" maxlength="60" required></label><label>Email<input type="email" name="email" autocomplete="email" required></label><label>Password<input type="password" name="password" autocomplete="new-password" minlength="12" required></label><p class="fine">Use at least 12 characters. We check known password breaches using a partial hash before you create an account. You’ll also verify your email.</p><button class="primary">Create account</button></form></section></main>`;
   const tabs=[...document.querySelectorAll('[data-auth-tab]')];
   tabs.forEach(b=>b.onclick=()=>{tabs.forEach(x=>x.classList.toggle('active',x===b));$('#signin').classList.toggle('hidden',b.dataset.authTab!=='signin');$('#signup').classList.toggle('hidden',b.dataset.authTab!=='signup')});
   $('#signin').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target);const {data,error}=await supabase.auth.signInWithPassword({email:String(f.get('email')).trim(),password:f.get('password')});if(error)throw error;if(!data.session)throw new Error('Sign-in did not create a session. Please try again.');authNotice='';pendingEmail='';session=data.session;user=data.user;await refresh();}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
-  $('#signup').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),email=String(f.get('email')).trim();const {data,error}=await supabase.auth.signUp({email,password:f.get('password'),options:{data:{display_name:String(f.get('displayName')).trim()},emailRedirectTo:authRedirectUrl()}});if(error)throw error;if(data.session){authNotice='';pendingEmail='';session=data.session;user=data.user;await refresh();return;}pendingEmail=email;authNotice=`Check ${email} for the confirmation link. If this address already has an account, sign in or reset its password.`;$('#auth-notice').textContent=authNotice;$('#auth-notice').classList.remove('hidden');$('#resend-confirmation').classList.remove('hidden');tabs[0].click();$('#signin').elements.email.value=email;}catch(err){const current=await supabase.auth.getSession();if(current.data?.session){session=current.data.session;user=session.user;authNotice='';await refresh();}else toast(errorText(err))}finally{setBusy(b,false)}};
+  $('#signup').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),email=String(f.get('email')).trim();await checkNewPassword(String(f.get('password')||''));const {data,error}=await supabase.auth.signUp({email,password:f.get('password'),options:{data:{display_name:String(f.get('displayName')).trim()},emailRedirectTo:authRedirectUrl()}});if(error)throw error;if(data.session){authNotice='';pendingEmail='';session=data.session;user=data.user;await refresh();return;}pendingEmail=email;authNotice=`Check ${email} for the confirmation link. If this address already has an account, sign in or reset its password.`;$('#auth-notice').textContent=authNotice;$('#auth-notice').classList.remove('hidden');$('#resend-confirmation').classList.remove('hidden');tabs[0].click();$('#signin').elements.email.value=email;}catch(err){const current=await supabase.auth.getSession();if(current.data?.session){session=current.data.session;user=session.user;authNotice='';await refresh();}else toast(errorText(err))}finally{setBusy(b,false)}};
   $('#resend-confirmation').onclick=async e=>{const b=e.currentTarget;setBusy(b);try{const {error}=await supabase.auth.resend({type:'signup',email:pendingEmail,options:{emailRedirectTo:authRedirectUrl()}});if(error)throw error;toast('Confirmation email requested. Check your inbox and spam folder.')}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
   $('#reset-password').onclick=async()=>{const email=prompt('Enter your account email');if(!email)return;const {error}=await supabase.auth.resetPasswordForEmail(email,{redirectTo:authRedirectUrl()});toast(error?error.message:'Password reset email sent.')};
 }
@@ -383,7 +390,8 @@ function renderProfile(root){
   $('#delete-account').onclick=deleteAccountDialog;
   $('#wallet-withdraw').onclick=()=>walletUI.open('funds');
   $('#edit-profile').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);const values=Object.fromEntries(new FormData(e.target));const {error}=await supabase.from('profiles').update(values).eq('id',user.id);setBusy(b,false);if(error)toast(error.message);else{toast('Profile updated.');await refresh()}};
-  $('#manage-mfa').onclick=manageMfa;if($('#start-payouts'))$('#start-payouts').onclick=startStripeOnboarding;if($('#stripe-dashboard'))$('#stripe-dashboard').onclick=openStripeDashboard;$('#change-password').onclick=async()=>{const password=prompt('Enter a new password (12+ characters)');if(!password)return;if(password.length<12){toast('Use at least 12 characters.');return}const {error}=await supabase.auth.updateUser({password});toast(error?error.message:'Password updated.');};
+  $('#manage-mfa').onclick=manageMfa;if($('#start-payouts'))$('#start-payouts').onclick=startStripeOnboarding;if($('#stripe-dashboard'))$('#stripe-dashboard').onclick=openStripeDashboard;$('#change-password').onclick=changePasswordDialog;
+  if(new URLSearchParams(route.split('?')[1]||'').get('security')==='mfa')manageMfa();
 }
 
 function deleteAccountDialog(){
@@ -475,10 +483,16 @@ async function beginMfaEnrollment({skipPendingCheck=false,retried=false}={}){
   }
 }
 
+function changePasswordDialog(){
+ showModal(`<div class="dialog-head"><h2>Change password</h2><button data-close aria-label="Cancel">✕</button></div><form id="password-change" class="stack"><label>Current password<input type="password" name="current" autocomplete="current-password" required></label><label>New password<input type="password" name="password" autocomplete="new-password" minlength="12" required></label><label>Confirm new password<input type="password" name="confirm" autocomplete="new-password" minlength="12" required></label><p class="fine">Use a unique password of at least 12 characters. Password screening sends only a short hash prefix.</p><label>Verification code (if requested)<input name="nonce" autocomplete="one-time-code" inputmode="numeric"></label><button type="button" id="password-reauthenticate">Send password verification code</button><button class="primary">Save new password</button><p role="status" id="password-status"></p></form>`);
+ $('#password-reauthenticate').onclick=async e=>{setBusy(e.currentTarget);try{const {error}=await supabase.auth.reauthenticate();if(error)throw error;$('#password-status').textContent='Check your email for the verification code.';}catch(error){$('#password-status').textContent=errorText(error);}finally{setBusy(e.currentTarget,false);}};
+ $('#password-change').onsubmit=async e=>{e.preventDefault();const button=e.submitter;setBusy(button);try{const f=new FormData(e.target),password=String(f.get('password'));if(password!==f.get('confirm'))throw Error('Passwords do not match.');await checkNewPassword(password);const {error}=await supabase.auth.updateUser({password,current_password:String(f.get('current')), ...(f.get('nonce')?{nonce:String(f.get('nonce')).trim()}: {})});if(error)throw error;closeModal();toast('Password updated.');}catch(error){$('#password-status').textContent=errorText(error);}finally{setBusy(button,false);}};
+}
+
 function renderPasswordRecovery(){
   app.innerHTML=`<main class="onboard"><section class="onboard-card"><div class="eyebrow">Account recovery</div><h1>Choose a new password.</h1><p class="muted">Use at least 12 characters and store it in a password manager.</p><form id="recovery-form" class="stack"><label>New password<input type="password" name="password" minlength="12" autocomplete="new-password" required></label><label>Confirm password<input type="password" name="confirm" minlength="12" autocomplete="new-password" required></label><button class="primary">Update password</button></form><button id="recovery-signout" class="linkish">Cancel and sign out</button></section></main>`;
   $('#recovery-signout').onclick=()=>supabase.auth.signOut();
-  $('#recovery-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),password=String(f.get('password')||''),confirm=String(f.get('confirm')||'');if(password!==confirm)throw new Error('Passwords do not match.');const {error}=await supabase.auth.updateUser({password});if(error)throw error;passwordRecovery=false;toast('Password updated.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
+  $('#recovery-form').onsubmit=async e=>{e.preventDefault();const b=e.submitter;setBusy(b);try{const f=new FormData(e.target),password=String(f.get('password')||''),confirm=String(f.get('confirm')||'');if(password!==confirm)throw new Error('Passwords do not match.');await checkNewPassword(password);const {error}=await supabase.auth.updateUser({password});if(error)throw error;passwordRecovery=false;toast('Password updated.');await refresh()}catch(err){toast(errorText(err))}finally{setBusy(b,false)}};
 }
 
 async function manageMfa(){

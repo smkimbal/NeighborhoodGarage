@@ -10,18 +10,18 @@ export async function browserBackend(){
  const serial=fn=>{const result=queue.then(fn);queue=result.catch(()=>{});return result;};
  const sql=(text,params=[],user=null)=>serial(async()=>{
   await db.exec('begin');try{await db.exec('set local role '+(user?'authenticated':'service_role'));
-   if(user)await db.query("select set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claims',$2,true)",[user.id,JSON.stringify({sub:user.id,role:'authenticated',aal:'aal1'})]);
+   if(user)await db.query("select set_config('request.jwt.claim.sub',$1,true),set_config('request.jwt.claims',$2,true)",[user.id,JSON.stringify({sub:user.id,role:'authenticated',aal:user.aal||'aal1'})]);
    const result=await db.query(text,params);await db.exec('commit');return result.rows;
   }catch(error){await db.exec('rollback');throw error;}
  });
  async function addUser(email,name){const user={id:crypto.randomUUID(),email,aud:'authenticated',app_metadata:{provider:'email',providers:['email']},user_metadata:{display_name:name},created_at:new Date().toISOString(),email_confirmed_at:new Date().toISOString()};
-  await db.query('insert into auth.users(id,email,raw_user_meta_data) values($1,$2,$3::jsonb)',[user.id,email,JSON.stringify(user.user_metadata)]);users.set(email,user);return user;
+  await db.query('insert into auth.users(id,email,raw_user_meta_data,email_confirmed_at) values($1,$2,$3::jsonb,now())',[user.id,email,JSON.stringify(user.user_metadata)]);users.set(email,user);return user;
  }
  const getUser=req=>{try{return [...users.values()].find(u=>u.id===JSON.parse(Buffer.from(req.headers.get('authorization').split('.')[1],'base64url')).sub);}catch{return null;}};
- const jwt=u=>[Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),Buffer.from(JSON.stringify({sub:u.id,role:'authenticated',aal:'aal1',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url'),'fixture'].join('.');
+ const jwt=u=>[Buffer.from('{"alg":"HS256","typ":"JWT"}').toString('base64url'),Buffer.from(JSON.stringify({sub:u.id,role:'authenticated',aal:u.aal||'aal1',exp:Math.floor(Date.now()/1000)+3600})).toString('base64url'),'fixture'].join('.');
  const rpc=async(name,args={},user=null)=>{try{
   const keys=Object.keys(args),rows=await sql('select * from public.'+ident(name)+'('+keys.map((k,i)=>ident(k)+' => $'+(i+1)).join(',')+')',keys.map(k=>typeof args[k]==='object'&&args[k]!==null&&!Array.isArray(args[k])?JSON.stringify(args[k]):args[k]),user);
-  return {data:['reputation_summary','rental_availability','search_tools','notification_batch'].includes(name)?rows:['process_rental_deadlines','wallet_summary','wallet_activity','release_version','operator_allowed'].includes(name)?rows[0]?.[name]:rows[0]||null};
+  return {data:['reputation_summary','rental_availability','search_tools','claim_notifications','case_operation_history'].includes(name)?rows:['process_rental_deadlines','wallet_summary','wallet_activity','release_version','operator_allowed','notification_summary','notification_delivery_status','set_operator_access','retry_notification'].includes(name)?rows[0]?.[name]:rows[0]||null};
  }catch(error){return {error};}};
  function from(table,user=null){let method='select',values,columns='*',single=false,order=[],limit='',clauses=[],params=[];
   const param=v=>{params.push(v);return '$'+params.length;};
@@ -60,7 +60,7 @@ export async function browserBackend(){
  stripe.paymentIntents={retrieve:async id=>{const s=[...sessions.values()].find(s=>s.payment_intent===id);return {id,status:'succeeded',amount_received:s.amount_total,currency:'usd',livemode:false,metadata:s.metadata,latest_charge:{id:'ch_'+id,paid:true,amount:s.amount_total,amount_refunded:0,currency:'usd',livemode:false,balance_transaction:{id:'txn_'+id,fee:Math.round(s.amount_total*.029)+30,available_on:Math.floor(Date.now()/1000)}}};}};
  stripe.v2={core:{accounts:{retrieve:async()=>({configuration:{recipient:{capabilities:{stripe_balance:{stripe_transfers:{status:'active'},payouts:{status:'active'}}}}}})}}};stripe.balance={retrieve:async()=>({available:[{currency:'usd',amount:100000}]})};stripe.transfers={list:async()=>({data:[],has_more:false}),create:async args=>({id:'tr_fixture_'+crypto.randomUUID(),...args})};
  class HttpError extends Error{constructor(message,status=400){super(message);this.status=status;}}
- const runtime={authenticate:async req=>{const user=getUser(req);if(!user)throw new HttpError('Sign in',401);return {user,admin,client:{rpc:(name,args)=>rpc(name,args,user)},claims:JSON.parse(Buffer.from(req.headers.get('authorization').split('.')[1],'base64url'))};},checked:r=>{if(r.error)throw r.error;return r.data;},checkedUrl:s=>s,endpoint:f=>async req=>{try{return Response.json(await f(req));}catch(error){return Response.json({error:error.message},{status:error.status||400});}},HttpError,stripeClient:()=>stripe};
+ const runtime={authenticate:async req=>{const user=getUser(req);if(!user)throw new HttpError('Sign in',401);return {user,admin,client:{rpc:(name,args)=>rpc(name,args,user)},hasVerifiedMfa:user.aal==='aal2',claims:JSON.parse(Buffer.from(req.headers.get('authorization').split('.')[1],'base64url'))};},checked:r=>{if(r.error)throw r.error;return r.data;},checkedUrl:s=>s,endpoint:f=>async req=>{try{return Response.json(await f(req));}catch(error){return Response.json({error:error.message},{status:error.status||400});}},HttpError,stripeClient:()=>stripe};
  const handlers={};for(const name of ['rental-booking','create-checkout','rental-action','credit-funding','withdraw-credits','upload-photo','support'])handlers[name]=await edgeHandler('supabase/functions/'+name+'/index.ts',runtime);
  async function intercept(route){const req=route.request(),url=new URL(req.url()),p=url.pathname,method=req.method(),payload=req.postDataJSON?.bind(req),user=getUser(new Request(req.url(),{headers:req.headers()}));requests.push({p,method});let data={},status=200;
   try{

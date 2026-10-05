@@ -90,3 +90,5 @@
 
 .profile-tabs button[aria-pressed="true"],.profile-tabs button[aria-pressed="true"]:hover{background:var(--green);border-color:var(--green);color:#fff}
 .profile-tabs button[aria-pressed="false"]{background:#fff;color:var(--ink)}
+/* Notification state remains readable in either color scheme. */
+.notice{padding:1rem;margin:.75rem 0;border:1px solid var(--line);border-radius:12px}.notice.unread{border-inline-start:4px solid var(--green);background:var(--cream)}.notice-state{font-weight:700;margin-inline-start:.5rem}.notice-badge{display:inline-block;padding:.1rem .45rem;border-radius:1rem;background:var(--green);color:#fff;font-weight:700}.notice-badge[hidden]{display:none}.operator-setup{border-inline-start:4px solid var(--green)}

@@ -20,15 +20,17 @@ export async function authenticate(req:Request,{allowMfaRecovery=false}={}){
  // getUser validates the signature; claims below are never accepted from an unvalidated token.
  const claims=JSON.parse(atob(auth.slice(7).split('.')[1].replace(/-/g,'+').replace(/_/g,'/')));
  const factors=await admin.auth.admin.mfa.listFactors({userId:user.id});if(factors.error)throw factors.error;
- if(!allowMfaRecovery&&factors.data.factors.some(f=>f.status==='verified')&&claims.aal!=='aal2')throw new HttpError('Enter your authenticator code before continuing.',403,'mfa_required');
+ const hasVerifiedMfa=factors.data.factors.some(f=>f.status==='verified');
+ if(!allowMfaRecovery&&hasVerifiedMfa&&claims.aal!=='aal2')throw new HttpError('Enter your authenticator code before continuing.',403,'mfa_required');
  const scope=new URL(req.url).pathname.split('/').pop()||'api';
  if(scope!=='delete-account')checked(await admin.rpc('check_request_access',{p_user:user.id,p_scope:scope,p_limit:['credit-funding','withdraw-credits','create-checkout'].includes(scope)?15:60}));
- return {user,admin,client,claims};
+ return {user,admin,client,claims,hasVerifiedMfa};
 }
 export function stripeClient(){
  const key=Deno.env.get('STRIPE_SECRET_KEY');
  if(!key)throw new HttpError('Stripe is not configured. Add STRIPE_SECRET_KEY from the Neighborhood Garage sandbox to Supabase Edge Function secrets.',503,'stripe_not_configured');
  const mode=Deno.env.get('STRIPE_MODE')||'sandbox';
+ if(projectUrl==='https://ilfpugydxlzmmxjfrmrv.supabase.co'&&mode!=='sandbox')throw new HttpError('The sandbox project is locked to Stripe test mode.',503,'sandbox_payment_mode');
  if(!['sandbox','live'].includes(mode))throw new HttpError('Set STRIPE_MODE to sandbox or live before creating a payment.',503,'stripe_mode_mismatch');
  if((mode==='sandbox'&&!/^(sk|rk)_test_/.test(key))||(mode==='live'&&!/^(sk|rk)_live_/.test(key)))throw new HttpError('Stripe key and STRIPE_MODE do not match. This application currently expects '+mode+' credentials.',503,'stripe_mode_mismatch');
  return new Stripe(key,{apiVersion:'2026-08-26.dahlia',httpClient:Stripe.createFetchHttpClient(),maxNetworkRetries:2,timeout:15000});

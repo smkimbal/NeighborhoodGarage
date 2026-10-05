@@ -1,8 +1,10 @@
+> Latest sandbox access and delivery checkpoint: [SANDBOX-OPERATIONS.md](SANDBOX-OPERATIONS.md).
+
 > Current hardening release status and activation requirements: [RELEASE-CONTROLS.md](RELEASE-CONTROLS.md).
 
 # Supabase + Stripe + AI operations
 
-The static production frontend uses only the Supabase public URL/key in `config.js`. Secrets belong in Supabase Edge Function secrets, never in GitHub Pages assets.
+The default frontend configuration targets the sandbox. Cloudflare production builds explicitly generate their separate public configuration. Secrets belong in Supabase Edge Function secrets, never in GitHub Pages assets.
 
 ## Environment
 
@@ -10,10 +12,9 @@ The static production frontend uses only the Supabase public URL/key in `config.
 - `STRIPE_MODE`: `sandbox` by default. Live keys are rejected until explicitly set to `live`.
 - `STRIPE_WEBHOOK_SECRET`: signing secret for this project's endpoint, matching the sandbox; production can also read its endpoint-specific signing secret from Supabase Vault.
 - `NG_CREDIT_FUNDING_APPROVED`: set to `true` in live mode only after Stripe approves the prepaid-credit and withdrawal model. The current sandbox needs no live-approval flag.
-- Optional `OPENAI_VISION_MODEL` (default `gpt-4.1-mini`) and `OPENAI_IMAGE_MODEL` (default `gpt-image-1`).
 - Supabase supplies its URL and credentials; both legacy `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` and newer `SUPABASE_PUBLISHABLE_KEYS` / `SUPABASE_SECRET_KEYS` JSON maps are supported.
 
-Deploy migrations with `npx supabase db push` and functions with `npx supabase functions deploy <name> --no-verify-jwt`. Every user-facing function validates its bearer token with Auth `getUser` and enforces enrolled MFA itself; the webhook validates Stripe's signature. The gateway flag alone is not the authentication mechanism.
+Reconcile the intended project’s migration names/timestamps before applying reviewed migrations; do not blindly run `db push` against these existing projects. Deploy functions with `npx supabase functions deploy <name> --no-verify-jwt`. Every user-facing function validates its bearer token with Auth `getUser` and enforces enrolled MFA itself; the webhook validates Stripe's signature. The gateway flag alone is not the authentication mechanism.
 
 Functions: `connect-account`, `create-checkout`, `credit-funding`, `rental-action`, `rental-booking`, `rental-maintenance`, `withdraw-credits`, `delete-account`, `stripe-webhook`, `mfa-recovery`, `support`, `upload-photo`, `notification-worker`.
 
@@ -48,7 +49,7 @@ MFA stays optional in the sandbox but is enforced by RLS and Edge Functions for 
 
 Run `npm ci`, `npm test`, `npm run check:edge`, `npm run dev`. Local static preview: `http://localhost:5173`. `npm run build` bundles pinned dependencies into `dist` without copying generated assets into source control; sandbox Pages publishes the built Actions artifact; there is no browser CDN dependency for the Supabase client. Map tiles require access to OpenStreetMap. Respect its tile usage policy and move to a suitable tile provider as traffic grows.
 
-The Pages workflow targets the working branch, not main. The repository also has native branch publishing enabled; committed bundles make both paths serve the same application. Commit refreshed `assets/` alongside source changes after running the build. Switching Settings → Pages → Source to GitHub Actions is optional once branch publishing is no longer needed. GitHub's `github-pages` environment must permit deployments from that branch. Assets are relative so `/NeighborhoodGarage/` works.
+The Pages workflow targets `neighborhood-garage-test`, validates Node 22/24 and publishes the `dist` Actions artifact only after those checks. Generated root assets have been retired. Pages must use GitHub Actions as its source, and its environment must allow that existing branch. Missing settings retain the validated artifact and explicitly skip hosting; see SANDBOX-OPERATIONS.md.
 
 ### Complete the remaining project settings
 

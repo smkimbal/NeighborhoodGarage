@@ -12,6 +12,8 @@ Deno.serve(async req=>{
  const rawBody=new Uint8Array(await req.arrayBuffer());
  let sync:StripeSync|undefined;
  try{
+  // Validate the project/key mode before Sync can use any copied credentials.
+  const stripe=stripeClient();
   const databaseUrl=Deno.env.get('SUPABASE_DB_URL');
   const useSync=Deno.env.get('STRIPE_SYNC_ENABLED')==='true'||Deno.env.get('SUPABASE_URL')==='https://ilfpugydxlzmmxjfrmrv.supabase.co';
   if(databaseUrl&&useSync){
@@ -24,10 +26,10 @@ Deno.serve(async req=>{
    // this one signing secret without exposing dashboard/API credentials.
    const secret=Deno.env.get('STRIPE_WEBHOOK_SECRET')||checked(await adminClient().rpc('stripe_webhook_signing_secret'));
    if(!secret)return new Response('Webhook not configured',{status:503});
-   await stripeClient().webhooks.constructEventAsync(rawBody,signature,secret,undefined,Stripe.createSubtleCryptoProvider());
+   await stripe.webhooks.constructEventAsync(rawBody,signature,secret,undefined,Stripe.createSubtleCryptoProvider());
   }
   const event=JSON.parse(new TextDecoder().decode(rawBody)) as Stripe.Event;
-  if(!await applyCreditPayment(event,stripeClient(),adminClient()))await applyRentalPayment(event);
+  if(!await applyCreditPayment(event,stripe,adminClient()))await applyRentalPayment(event);
   return new Response('ok');
  }catch(error){
   const e=error as {message?:string,type?:string};

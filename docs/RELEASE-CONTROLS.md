@@ -1,3 +1,5 @@
+> Sandbox-only follow-up and prepared administrative controls: [SANDBOX-OPERATIONS.md](SANDBOX-OPERATIONS.md).
+
 # Hardening release controls — October 4, 2026
 
 Status: the user authorized testing and publication. Local validation passes: 96 tests on Node 22 and 24, 13 Edge Function type checks, both production browser journeys with real security headers, and Wrangler asset packaging. Provider payment transport in these tests is mocked; this is not live payment or bank-arrival certification. See HARDENING-VALIDATION.md for the rollout checkpoint.
@@ -23,7 +25,7 @@ These are not configured by source edits:
 - Cloudflare: use `main` and a controlled deploy path. Its push-triggered build does not wait for an independent GitHub workflow. Prefer disabling automatic publishing and uploading the validated artifact. The gated build and deploy scripts now verify the exact commit workflow and backend automatically. Confirm the Dashboard uses these scripts; do not set validation-only bypass flags there. Administrator settings were not changed through this code update.
 - GitHub Pages sandbox: publish the Actions `dist` artifact, not the branch root. Root generated assets were removed on `main`; do not merge that cleanup into an old branch-root deployment without switching Pages first.
 - Supabase: deploy backend before frontend, verify RLS/storage changes and webhook signing mode, retain separate production/sandbox projects, and remove retired remote `identify-tool`/`prepare-photo` functions after checking old-client use. Their local source is removed; remote deletion has not occurred.
-- Operator allowlist: a database administrator inserts the intended verified account ID into `private.operator_accounts`; no self-enrollment API exists. Confirm at least one staffed operator and a backup before relying on the queue.
+- Operator allowlist: a database administrator uses the audited, service-only `set_operator_access` operation for the intended verified account ID; no self-enrollment API exists. Confirm at least one staffed operator and a backup before relying on the queue.
 - Notifications: the in-app outbox/reminders are implemented. An approved HTTPS delivery adapter and secrets `NG_NOTIFICATION_DELIVERY_URL`/`NG_NOTIFICATION_DELIVERY_TOKEN` are required for outbound mail. Its contract accepts `{id,to,subject,text}` with a bearer token and `Idempotency-Key`; it must persist idempotency before acknowledging success. Schedule the authenticated worker, monitor attempts reaching 12, and provide a manual recovery procedure. No real messages were sent in this work.
 
 ## Money and fee policy

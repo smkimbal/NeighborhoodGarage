@@ -4,7 +4,7 @@ export async function database(){
  const db=await PGlite.create();
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create role supabase_auth_admin;
  create schema auth;create schema storage;
- create table auth.users(id uuid primary key,instance_id uuid,aud text,role text,email text,raw_app_meta_data jsonb default '{}',raw_user_meta_data jsonb default '{}',created_at timestamptz,updated_at timestamptz);
+ create table auth.users(id uuid primary key,instance_id uuid,aud text,role text,email text,email_confirmed_at timestamptz,raw_app_meta_data jsonb default '{}',raw_user_meta_data jsonb default '{}',created_at timestamptz,updated_at timestamptz);
  create table auth.mfa_factors(id uuid primary key,user_id uuid,status text);
  create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;
  create function auth.jwt() returns jsonb language sql stable as $$select coalesce(nullif(current_setting('request.jwt.claims',true),''),'{}')::jsonb$$;

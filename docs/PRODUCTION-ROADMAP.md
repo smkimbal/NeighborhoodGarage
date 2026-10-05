@@ -1,6 +1,6 @@
 # Neighborhood Garage production roadmap
 
-Working plan — October 4, 2026. Engineering validation is recorded in HARDENING-VALIDATION.md; public paid launch still requires the operating and provider acceptance gates below. The goal is a small, reliable, locally dense marketplace before geographic expansion.
+Working plan — October 5, 2026. Sandbox operator, notification, password-screening and provider-control progress is recorded in [SANDBOX-OPERATIONS.md](SANDBOX-OPERATIONS.md). Engineering validation is recorded in HARDENING-VALIDATION.md; public paid launch still requires the operating and provider acceptance gates below. The goal is a small, reliable, locally dense marketplace before geographic expansion.
 
 ## Minimum viable paid launch
 

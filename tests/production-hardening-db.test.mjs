@@ -26,7 +26,8 @@ test('production hardening enforces receipt, ledger, access and settlement invar
   await assert.rejects(()=>reverse('forged-total',103,5000,0,false),/Invalid reversal/);
   const c=(await db.query("select * from support_cases where dedupe_key='charge:ch_hardening'")).rows[0];assert(c.financial_hold);const request=crypto.randomUUID();
   await db.query("select operate_case($1,$2,'allocate-payment-loss','Owner agreed to absorb this verified payment loss.',100,$3)",[operator,c.id,request]);
-  const ownerAfter=await balance(owner);await db.query("select operate_case($1,$2,'allocate-payment-loss','Replay the same audited decision unchanged.',100,$3)",[operator,c.id,request]);assert.equal(await balance(owner),ownerAfter);
+  const ownerAfter=await balance(owner);await db.query("select operate_case($1,$2,'allocate-payment-loss','Owner agreed to absorb this verified payment loss.',100,$3)",[operator,c.id,request]);assert.equal(await balance(owner),ownerAfter);
+  await assert.rejects(()=>db.query("select operate_case($1,$2,'allocate-payment-loss','Changed explanation must not reuse a committed request.',100,$3)",[operator,c.id,request]),/request mismatch/);
   await assert.rejects(()=>db.query("select operate_case($1,$2,'allocate-payment-loss','Cannot allocate more than the verified payment loss.',5000,gen_random_uuid())",[operator,c.id]),/exceeds/);
   await db.query("select operate_case($1,$2,'resolve','Reconciled the refund, allocation and remaining funds.',0,gen_random_uuid())",[operator,c.id]);await db.query('select private.assert_credit_account_clear($1)',[owner]);
  });
